@@ -23,6 +23,13 @@ from propertyrl.infra.storage import record_benchmark, sub_artifacts, write_json
 
 log = logging.getLogger(__name__)
 N_ENVS_LIST = (1, 4, 8, 16, 32, 64)
+#: Conservative resident memory of one SubprocVecEnv worker (Python, numpy, torch via SB3, engine).
+WORKER_MB = 300
+
+
+def memory_cap() -> int:
+    """Largest number of subprocess workers that fits into half of the available memory."""
+    return max(1, int(0.5 * psutil.virtual_memory().available / 2**20 / WORKER_MB))
 
 
 def bench_engine(seconds: float, log_events: bool) -> dict[str, Any]:
@@ -128,6 +135,9 @@ def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | Non
     if smoke:
         seconds = min(seconds, 1.5)
         env_list = [n for n in (1, 4) if n <= (max_envs or 64)]
+    cap = memory_cap()
+    skipped = {str(n): f"mehr als {cap} Worker passen nicht in den verfügbaren Speicher" for n in env_list if n > cap}
+    env_list = [n for n in env_list if n <= cap]
     result: dict[str, Any] = {
         "cores": cores,
         "seconds_per_measurement": seconds,
@@ -142,6 +152,8 @@ def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | Non
         },
         "gym_dummy": [bench_vecenv(n, "dummy", seconds) for n in env_list if n <= 16],
         "subproc": [bench_vecenv(n, "subproc", seconds) for n in env_list],
+        "skipped_n_envs": skipped,
+        "memory_available_mb": psutil.virtual_memory().available / 2**20,
     }
     candidates = result["gym_dummy"] + result["subproc"]
     best = max(candidates, key=lambda r: r["env_steps_per_s"])
