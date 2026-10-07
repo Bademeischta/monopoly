@@ -85,12 +85,12 @@ def hardware() -> dict[str, Any]:
                     info["cpu_model"] = line.split(":", 1)[1].strip()
                     break
     except OSError:
-        pass
+        info["cpu_model"] = platform.processor() or "unknown"
     try:
         import torch
 
         info["gpu"] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
-    except Exception:  # noqa: BLE001 - GPU probing must never fail a run
+    except Exception:
         info["gpu"] = None
     return info
 

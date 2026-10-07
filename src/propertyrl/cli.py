@@ -161,7 +161,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
     names = list_experiments() if a.experiments == "all" else a.experiments.split(",")
     res = plan(names, a.smoke)
     _print(res)
-    return 0 if not res["warnings"] else 0
+    return 0
 
 
 def cmd_train(a: argparse.Namespace) -> int:
@@ -169,7 +169,7 @@ def cmd_train(a: argparse.Namespace) -> int:
     from propertyrl.training.train import train
 
     if a.resume:
-        res = train("", 0, resume=Path(a.resume))
+        res = train("", 0, resume=Path(a.resume), wandb=a.wandb)
         _print({k: v for k, v in res.items() if k not in ("episode_steps", "episode_durations", "ev_history")})
         return 0
     if not a.experiment:
@@ -180,7 +180,7 @@ def cmd_train(a: argparse.Namespace) -> int:
     if a.smoke:
         seeds = seeds[:1]
     for seed in seeds:
-        res = train(a.experiment, seed, smoke=a.smoke)
+        res = train(a.experiment, seed, smoke=a.smoke, wandb=a.wandb)
         _print({k: v for k, v in res.items() if k not in ("episode_steps", "episode_durations", "ev_history")})
     return 0
 
@@ -231,8 +231,10 @@ def cmd_report(a: argparse.Namespace) -> int:
 
 
 def cmd_gates(a: argparse.Namespace) -> int:
-    from propertyrl.infra.gates import evaluate_gates
+    from propertyrl.infra.gates import confirm_v_points, evaluate_gates
 
+    if a.confirm_v_points:
+        print(f"V1–V6 bestätigt: {confirm_v_points()}")
     res = evaluate_gates(a.gate, record=True)
     for gate, info in res.items():
         print(f"{gate}: {info['status']}")
@@ -338,6 +340,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--seed", type=int)
     sp.add_argument("--resume")
     sp.add_argument("--extended", action="store_true", help="zusätzliche Seeds für den Abschlussbericht")
+    sp.add_argument("--wandb", action="store_true", help="optional: technische Metriken an W&B (Standard offline)")
     add("sweep-gamma", cmd_sweep, "γ-Sweep", smoke=True)
     sp = add("selfplay", cmd_selfplay, "Self-Play-Training", smoke=True)
     sp.add_argument("--seed", type=int, default=1)
@@ -358,6 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--experiment", required=True)
     sp = add("gates", cmd_gates, "Gate-Status G0-G8")
     sp.add_argument("--gate")
+    sp.add_argument("--confirm-v-points", action="store_true", help="V1–V6 als vom Nutzer geprüft vermerken (G0)")
     sp = add("diagnose", cmd_diagnose, "Diagnose-Checkliste eines Laufs", smoke=True)
     sp.add_argument("--run", required=True)
     sp.add_argument("--steps", type=int, default=2000)

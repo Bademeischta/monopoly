@@ -11,12 +11,11 @@ from typing import Any
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from propertyrl.evaluation.stats import holm, paired_bootstrap  # noqa: E402
-from propertyrl.infra.config import frozen_dir, list_experiments, load_experiment  # noqa: E402
-from propertyrl.infra.storage import query, read_json, reports_dir, runs_dir, sub_artifacts  # noqa: E402
-from propertyrl.training.smoke import SMOKE_LABEL  # noqa: E402
+from propertyrl.evaluation.stats import holm, paired_bootstrap
+from propertyrl.infra.config import SMOKE_LABEL, frozen_dir, list_experiments, load_experiment
+from propertyrl.infra.storage import query, read_json, reports_dir, runs_dir, sub_artifacts
 
 log = logging.getLogger(__name__)
 ABLATIONS = (
@@ -49,7 +48,7 @@ def _evals(experiment: str, smoke: bool) -> list[dict[str, Any]]:
 
 
 def _frozen(name: str, smoke: bool) -> dict[str, Any] | None:
-    for candidate in ([f"{name}_smoke", name] if smoke else [name]):
+    for candidate in [f"{name}_smoke", name] if smoke else [name]:
         path = frozen_dir() / f"{candidate}.json"
         if path.exists():
             data: dict[str, Any] = read_json(path)
@@ -149,7 +148,10 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
     train_h = sum(float(m.get("training_hours") or 0.0) for m in runs)
     budget_h = sum(float(m.get("budget_hours") or 0.0) for m in runs)
     eval_games = sum(int(m.get("eval_games") or 0) for m in runs)
-    lines += [f"Training: {train_h:.3f} h von {budget_h:.1f} h Budget; Evaluationsspiele im Training: {eval_games}.", ""]
+    lines += [
+        f"Training: {train_h:.3f} h von {budget_h:.1f} h Budget; Evaluationsspiele im Training: {eval_games}.",
+        "",
+    ]
     # Round robin.
     lines += ["## Baseline-Round-Robin (G3)", ""]
     rr_path = sub_artifacts("roundrobin") / ("roundrobin_smoke.json" if smoke else "latest.json")
@@ -208,11 +210,7 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
                 f"[{_fmt(s['wilson_lower'])}, {_fmt(s['wilson_upper'])}] | [{_fmt(b.get('lower'))}, "
                 f"{_fmt(b.get('upper'))}] | {_fmt(s['sensitivity_win_rate'])} | {_fmt(s['truncation_rate'])} |"
             )
-        pooled = [(_primary(e) or ("", {}))[1] for e in primary_rows]
-        rates = [p.get("win_rate", 0.0) for p in pooled if p]
-        if rates:
-            lines += ["", f"Gepoolt über {len(rates)} Agenten: Mittel {_fmt(sum(rates) / len(rates))}; "
-                      f"alle Punktschätzer > 0,5: {all(r > 0.5 for r in rates)}."]  # fmt: skip
+        lines += ["", *_criteria_lines(experiment, exp, "smoke" if smoke else "test", smoke)]
         values = {e["agent"][-25:]: (_primary(e) or ("", {"win_rate": 0.0}))[1]["win_rate"] for e in primary_rows}
         bar_plot(values, fig_dir / "primary.png", "Siegquote")
         lines.append(f"\n![Primärer Endpunkt]({fig_dir.name}/primary.png)")
@@ -228,11 +226,13 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
             m = s.get("metrics", {})
             tag = " (ungesehene Policy)" if opp == "greedy_v1" else ""
             lines.append(
-                f"- gegen {opp}{tag}: Siegquote {_fmt(s['win_rate'])}, mittlere Platzierung {_fmt(s['mean_placement'])},"
-                f" Runden {_fmt(m.get('mean_rounds'), 1)}, Käufe {_fmt(m.get('purchases_per_game'), 1)}, Bauten "
-                f"{_fmt(m.get('builds_per_game'), 1)}, Handel {_fmt(m.get('trades_per_game'), 2)}, Bau-Effizienz "
-                f"{_fmt(m.get('build_efficiency'))}, Haft-Bleiben {m.get('jail_stay_share_by_phase')}"
+                f"- gegen {opp}{tag}: Siegquote {_fmt(s['win_rate'])}, mittlere Platzierung "
+                f"{_fmt(s['mean_placement'])}, Runden {_fmt(m.get('mean_rounds'), 1)}, Käufe "
+                f"{_fmt(m.get('purchases_per_game'), 1)}, Bauten {_fmt(m.get('builds_per_game'), 1)}, Handel "
+                f"{_fmt(m.get('trades_per_game'), 2)}, Bau-Effizienz {_fmt(m.get('build_efficiency'))}, "
+                f"Haft-Bleiben {m.get('jail_stay_share_by_phase')}"
             )
+        lines += ["", *_holm_lines(e)]
         lines.append("")
     # Ablations with Holm correction.
     lines += ["## Ablationen (Holm-korrigierte gepaarte Vergleiche gegen A1)", ""]
@@ -249,7 +249,9 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
         lines += ["| Ablation | Differenz zu A1 | 95 %-CI | p (Holm) |", "|---|---|---|---|"]
         for (abl, res), p in zip(rows, adj, strict=True):
             label = " (Research)" if "research" in abl else ""
-            lines.append(f"| {abl}{label} | {_fmt(res.estimate)} | [{_fmt(res.lower)}, {_fmt(res.upper)}] | {_fmt(p)} |")
+            lines.append(
+                f"| {abl}{label} | {_fmt(res.estimate)} | [{_fmt(res.lower)}, {_fmt(res.upper)}] | {_fmt(p)} |"
+            )
     else:
         lines.append("Noch keine vergleichbaren Ablations-Auswertungen vorhanden.")
     lines.append("")
@@ -267,16 +269,34 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
     # 4P.
     lines += ["## 4 Spieler: OpenSkill und Kingmaking", ""]
     km_dir = sub_artifacts("kingmaking")
-    km_files = sorted(km_dir.glob("*smoke*.json" if smoke else "*.json"))
+    km_files = sorted(f for f in km_dir.glob("kingmaking_*.json") if ("smoke" in f.name) == smoke)
     for f in km_files[-3:]:
         km = read_json(f)
-        lines.append(f"- {f.name}: Kingmaking-Rate {_fmt(km.get('kingmaking_rate'))}, mittlere WS {_fmt(km.get('ws_mean'))}"
-                     f" ({km.get('points')} Punkte)")  # fmt: skip
-    fourp = _evals("fourp_official", smoke) + _evals("fourp_single_seat_fallback", smoke)
+        lines.append(
+            f"- {f.name}: Kingmaking-Rate {_fmt(km.get('kingmaking_rate'))}, mittlere WS "
+            f"{_fmt(km.get('ws_mean'))} ({km.get('points')} Punkte)"
+        )
+    fourp_rows = query(
+        "SELECT summary_json, path FROM eval_summaries WHERE experiment IN (?, ?) AND smoke = ? ORDER BY created",
+        ("fourp_official", "fourp_single_seat_fallback", int(smoke)),
+    )
+    fourp = [json.loads(raw) for raw, _ in fourp_rows]
     for e in fourp:
         for opp, s in e.get("opponents", {}).items():
-            lines.append(f"- {e['experiment']} gegen {opp}: Platz-1-Quote {_fmt(s.get('first_place_rate'))}, "
-                         f"mittlere Platzierung {_fmt(s.get('mean_placement'))}")  # fmt: skip
+            lines.append(
+                f"- {e['experiment']} ({e['split']}) gegen {opp}: Platz-1-Quote {_fmt(s.get('first_place_rate'))}, "
+                f"mittlere Platzierung {_fmt(s.get('mean_placement'))}"
+            )
+    if fourp_rows:
+        from propertyrl.evaluation.criteria import load_records
+        from propertyrl.evaluation.ratings import openskill
+
+        records = [r for _, path in fourp_rows for r in load_records(Path(path))]
+        lines += ["", "| Policy | OpenSkill mu | sigma | ordinal |", "|---|---|---|---|"]
+        for name, rating in openskill(records).items():
+            lines.append(
+                f"| {name[-40:]} | {_fmt(rating['mu'])} | {_fmt(rating['sigma'])} | {_fmt(rating['ordinal'])} |"
+            )
     if not km_files and not fourp:
         lines.append("Noch keine 4P-Auswertung vorhanden.")
     lines.append("")
@@ -286,7 +306,9 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
     failed = []
     lines += ["| Gate | Status | Kriterien |", "|---|---|---|"]
     for gate, info in gates.items():
-        lines.append(f"| {gate} | {info['status']} | {'; '.join(c['name'] + ': ' + c['status'] for c in info['criteria'])} |")
+        lines.append(
+            f"| {gate} | {info['status']} | {'; '.join(c['name'] + ': ' + c['status'] for c in info['criteria'])} |"
+        )
         if info["status"] == "FAIL":
             failed.append(gate)
     lines.append("")
@@ -308,3 +330,63 @@ def _ablation_scores(experiment: str, smoke: bool) -> dict[int, float]:
     if pr is None:
         return {}
     return {int(k): float(v) for k, v in pr[1].get("per_seed", {}).items()}
+
+
+def _criteria_lines(experiment: str, exp: Any, split: str, smoke: bool) -> list[str]:
+    """Z3 (2P), Z4 (self-play) or Z5 (4P) computed from the stored games (§8.4)."""
+    from propertyrl.evaluation.criteria import z3, z4, z5
+
+    out: list[str] = []
+    if exp is not None and exp.env.n_players > 2:
+        res = z5(experiment, split, smoke)
+        out.append("### Z5 (4P)")
+        for a in res["agents"]:
+            diffs = ", ".join(
+                f"{b}: {_fmt(d['mean_difference'])} [{_fmt(d['lower'])}, {_fmt(d['upper'])}]"
+                for b, d in a["placement_differences"].items()
+            )
+            out += [
+                f"- {a['agent'][-40:]}: Platz-1-Quote {_fmt(a['first_place_rate'])} (Wilson "
+                f"[{_fmt(a['wilson_lower'])}, {_fmt(a['wilson_upper'])}]), Rotationen "
+                f"{ {k: round(v, 3) for k, v in a['rotations'].items()} }",
+                f"  Platzierungsdifferenz Agent − Baseline (Bootstrap-CI): {diffs}",
+            ]
+        out.append(f"Z5 erfüllt: {res['passed']}")
+        return out
+    if exp is not None and exp.mode == "selfplay":
+        res4 = z4(split, smoke)
+        out.append("### Z4 (Self-Play)")
+        for c in res4["champions"]:
+            vs = c.get("a_vs_mcr") or {}
+            snap = c.get("c_vs_snapshots") or {}
+            out.append(
+                f"- {c['agent'][-40:]}: (a) gegen MCR {_fmt(vs.get('win_rate'))} (untere Grenze "
+                f"{_fmt(vs.get('lower'))}) {c['a_passed']}; (b) {c['b_passed']} "
+                f"{ {k: (_fmt(v['champion']), _fmt(v['mcr'])) for k, v in c['b'].items()} }; (c) gegen ältere "
+                f"Snapshots {_fmt(snap.get('win_rate'))} [{_fmt(snap.get('lower'))}, {_fmt(snap.get('upper'))}] "
+                f"{c['c_passed']}"
+            )
+        out.append(f"Z4 erfüllt: {res4['passed']}")
+        return out
+    res3 = z3(experiment, split, smoke)
+    pooled = res3["pooled"]
+    out += [
+        "### Z3 (gepoolt über Trainingsseeds, Seed-Cluster-Bootstrap)",
+        f"Gegner (primärer Endpunkt): {res3['primary_opponent']}; Seeds: {len(res3['agents'])} "
+        f"(erforderlich {res3['required_seeds']}); gepoolte Siegquote {_fmt(pooled['win_rate'])} "
+        f"[{_fmt(pooled['lower'])}, {_fmt(pooled['upper'])}]; alle Punktschätzer > 0,5: "
+        f"{all((a['win_rate'] or 0.0) > 0.5 for a in res3['agents'])}; Z3 erfüllt: {res3['passed']}",
+    ]
+    return out
+
+
+def _holm_lines(summary: dict[str, Any]) -> list[str]:
+    """Holm-corrected bootstrap p-values (H0: win rate 50 %) of all secondary comparisons of one evaluation."""
+    primary = _primary(summary)
+    family = [(k, v) for k, v in summary.get("opponents", {}).items() if primary is None or k != primary[0]]
+    if not family:
+        return []
+    adjusted = holm([float(v["bootstrap"]["p_value"]) for _, v in family])
+    out = ["| Sekundärvergleich | Siegquote | p (Holm) |", "|---|---|---|"]
+    out += [f"| {k[-40:]} | {_fmt(v['win_rate'])} | {_fmt(p)} |" for (k, v), p in zip(family, adjusted, strict=True)]
+    return out

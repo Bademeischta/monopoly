@@ -1,0 +1,83 @@
+# Continuous integration (§10): Linux and Windows, Python 3.11 and 3.12.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+      PROPERTYRL_HOME: ${{ github.workspace }}/ci_home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install (CPU torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .[dev]
+      - name: Ruff
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Mypy (engine, env)
+        run: mypy src/propertyrl/engine src/propertyrl/env
+      - name: Pytest with coverage (without the smoke pipeline)
+        env:
+          PROPERTYRL_HOME: ${{ runner.temp }}/pytest_home
+        run: >
+          pytest -n auto -m "not slow" --cov=propertyrl --cov-branch
+          --cov-report=xml:ci_home/artifacts/test-reports/coverage.xml
+          --junitxml=ci_home/artifacts/test-reports/junit.xml
+      - name: Coverage thresholds (engine 95 % lines / 90 % branches, total 80 %)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from propertyrl.infra.gates import coverage
+          cov = coverage(Path("ci_home/artifacts/test-reports/coverage.xml"))
+          print(cov)
+          assert cov["engine_line"] >= 0.95 and cov["engine_branch"] >= 0.90 and cov["line"] >= 0.80, cov
+          PY
+      - name: CI fuzz (100,000 decisions per configuration, rare events)
+        run: propertyrl fuzz --decisions 100000 --rare-events
+      - name: CI Markov (1,000,000 rest events, 0.15 pp)
+        run: propertyrl markov-check --moves 1000000 --tolerance-pp 0.15
+      # The mutants (tests/mutation) and archived-replay tests run inside the pytest step above.
+      - name: Archived replays via the CLI
+        run: propertyrl replay --verify-archive
+      - name: Smoke pipeline
+        env:
+          PROPERTYRL_HOME: ${{ runner.temp }}/pytest_home
+        run: pytest -q tests/smoke
+      - name: License check
+        run: propertyrl license-check
+      - name: Gates
+        run: propertyrl gates
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            ci_home/artifacts/test-reports
+            ci_home/artifacts/fuzz
+            ci_home/artifacts/markov
+          if-no-files-found: ignore

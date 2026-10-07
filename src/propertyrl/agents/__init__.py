@@ -20,6 +20,7 @@ from propertyrl.agents.registry import (
     TRAINING_OPPONENTS,
     cached_policy,
     clear_cache,
+    is_policy_spec,
     make_policy,
 )
 from propertyrl.agents.roi_markov import RoiMarkovPolicy
@@ -47,6 +48,7 @@ __all__ = [
     "cached_policy",
     "clamp_bid",
     "clear_cache",
+    "is_policy_spec",
     "landing_freq",
     "make_external",
     "make_policy",

@@ -159,11 +159,18 @@ def test_matrix(refs: dict[str, list[str]]) -> str:
         "| G1 | Golden Games | `tests/golden/test_golden.py` |",
         "| G1 | Hypothesis | `tests/property/test_state_machine.py` |",
         "| G2 | check_env (Gymnasium, SB3), api_test | `tests/env/test_env_api.py` |",
-        "| G2 | 0 illegale Aktionen | `tests/env/test_masks.py` (CI 100.000, Gate 1 Mio. via "
+        "| G2 | 0 illegale Aktionen | `tests/env/test_masks_leak.py` (CI 100.000, Gate 1 Mio. via "
         "`PROPERTYRL_MASK_STEPS=1000000`) |",
         "| G2 | SubprocVecEnv (spawn) | `tests/env/test_vecenv.py` |",
         "| G2 | Mehrsitz-Äquivalenz | `tests/env/test_multiseat.py` |",
         "| G2 | Durchsatz gemessen | `propertyrl benchmark` |",
+        "| G3 | Round-Robin, Horizont | `tests/evaluation/test_ratings_harness.py`, `propertyrl round-robin`, "
+        "`propertyrl calibrate-horizon` |",
+        "| G4 | Sanity auf SELECT, γ eingefroren | `tests/training/test_training_components.py`, "
+        "`propertyrl sweep-gamma` |",
+        "| G5–G7 | Z3, Z4, Z5 | `tests/evaluation/test_criteria.py` |",
+        "| G0–G8 | Gate-Auswertung aus Artefakten | `tests/infra/test_gates_plan_licenses.py` |",
+        "| Statistik, Ledger, Seeds | §8 | `tests/evaluation/test_stats.py`, `tests/evaluation/test_ledger_seeds.py` |",
         "| G3–G8 | Pipeline | `tests/smoke/test_pipeline.py` (`propertyrl pipeline --smoke-all`) |",
         "",
     ]

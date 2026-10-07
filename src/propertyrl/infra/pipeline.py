@@ -39,10 +39,33 @@ def _agent_of(result: dict[str, Any], selfplay: bool) -> str:
     return f"sb3:{path}"
 
 
+def selfplay_opponents(result: dict[str, Any], smoke: bool, max_snapshots: int = 5) -> list[str]:
+    """Extra Z4 opponents of a champion: its MCR start agent (a) and up to 5 older snapshots, evenly spaced (c)."""
+    from propertyrl.training.train import find_checkpoint
+
+    rdir = Path(result["run_dir"])
+    meta = load_run_meta(rdir)
+    start = meta.get("init_from")
+    mcr = Path(start) if start else find_checkpoint("mcr_official_2p", None, smoke)
+    out = [f"sb3:{mcr}"] if mcr is not None and Path(mcr).exists() else []
+    state = read_json(rdir / "training_state.json") if (rdir / "training_state.json").exists() else {}
+    pool = [p for p in (state.get("pool") or {}).get("paths", []) if Path(p).exists()]
+    champion = str(state.get("champion") or "").split(":", 1)[-1]
+    older = pool[: pool.index(champion)] if champion in pool else []
+    if len(older) > max_snapshots:
+        step = len(older) / max_snapshots
+        older = [older[int(i * step)] for i in range(max_snapshots)]
+    return out + [f"sb3:{p}" for p in older]
+
+
 def evaluate_experiment_agents(
     experiment: str, results: list[dict[str, Any]], smoke: bool, force_retest: bool = False
 ) -> list[dict[str, Any]]:
-    """SELECT (or SMOKE) evaluation plus the primary split (TEST, or SMOKE in smoke mode) for every run."""
+    """SELECT evaluation plus the primary split (TEST, or SMOKE in smoke mode) for every run.
+
+    Every opponent of the primary split is evaluated in a single call, because the ledger allows one TEST
+    evaluation per agent; for self-play this includes the MCR agent and older snapshots (Z4).
+    """
     exp = load_experiment(experiment)
     selfplay = exp.mode == "selfplay"
     n_players = exp.env.n_players
@@ -54,37 +77,17 @@ def evaluate_experiment_agents(
     out = []
     for res in results:
         agent = _agent_of(res, selfplay)
+        opps = opponents + selfplay_opponents(res, smoke) if selfplay else opponents
         if smoke:
-            out.append(evaluate_agent(agent, opponents, "smoke", None, exp.env.ruleset, n_players, experiment,
+            out.append(evaluate_agent(agent, opps, "smoke", None, exp.env.ruleset, n_players, experiment,
                                       smoke=True, label=exp.label))  # fmt: skip
             continue
-        out.append(evaluate_agent(agent, opponents, "select", exp.evaluation.n_select_seeds, exp.env.ruleset,
+        out.append(evaluate_agent(agent, opps, "select", exp.evaluation.n_select_seeds, exp.env.ruleset,
                                   n_players, experiment, label=exp.label))  # fmt: skip
         n_test = None if exp.evaluation.n_test_seeds == "frozen" else int(exp.evaluation.n_test_seeds)
-        out.append(evaluate_agent(agent, opponents, "test", n_test, exp.env.ruleset, n_players, experiment,
+        out.append(evaluate_agent(agent, opps, "test", n_test, exp.env.ruleset, n_players, experiment,
                                   force_retest=force_retest, label=exp.label))  # fmt: skip
     return out
-
-
-def selfplay_extra(results: list[dict[str, Any]], smoke: bool) -> list[dict[str, Any]]:
-    """Z4 (a) champion vs MCR agent and (c) champion vs older snapshots (paired duplicate)."""
-    from propertyrl.training.train import find_checkpoint
-
-    extra = []
-    for res in results:
-        champion = _agent_of(res, True)
-        mcr = find_checkpoint("mcr_official_2p", None, smoke)
-        opps = []
-        if mcr is not None:
-            opps.append(f"sb3:{mcr}")
-        state = read_json(Path(res["run_dir"]) / "training_state.json")
-        pool = [p for p in (state.get("pool") or {}).get("paths", []) if f"sb3:{p}" != champion]
-        opps += [f"sb3:{p}" for p in pool[: max(0, len(pool) - 5)][:3]]
-        if opps:
-            split = "smoke" if smoke else "select"
-            extra.append(evaluate_agent(champion, opps, split, None, "OFFICIAL_US_CLASSIC_2008", 2,
-                                        "selfplay_official_2p", smoke=smoke))  # fmt: skip
-    return extra
 
 
 def kingmaking_for(experiment: str, agent: str | None, smoke: bool) -> dict[str, Any]:
@@ -104,7 +107,7 @@ def kingmaking_for(experiment: str, agent: str | None, smoke: bool) -> dict[str,
 
         seeds = subset("TEST" if agent else "SELECT", start=0, end=min(params.games, test_size(4)))
     first = agent or "strong_a_v1"
-    specs = duplicate_specs(first, lineup, seeds, "OFFICIAL_US_CLASSIC_2008", 4)[:: 4][: params.games]
+    specs = duplicate_specs(first, lineup, seeds, "OFFICIAL_US_CLASSIC_2008", 4)[::4][: params.games]
     result = run_kingmaking(specs, params)
     tag = ("smoke_" if smoke else "") + experiment + "_" + time.strftime("%Y%m%d-%H%M%S")
     write_json(sub_artifacts("kingmaking") / f"kingmaking_{tag}.json", result)
@@ -125,8 +128,6 @@ def run_experiment_pipeline(experiment: str, smoke: bool = False, force_retest: 
     seeds = exp.training.seeds[:1] if smoke else exp.training.seeds
     results = [train(experiment, seed, smoke=smoke) for seed in seeds]
     evals = evaluate_experiment_agents(experiment, results, smoke, force_retest)
-    if exp.mode == "selfplay":
-        evals += selfplay_extra(results, smoke)
     km = None
     if exp.env.n_players > 2:
         km = kingmaking_for(experiment, _agent_of(results[0], False), smoke)
@@ -152,8 +153,9 @@ def repro(run_path: Path) -> dict[str, Any]:
         p = run_path / name
         if p.exists():
             agents.append(ledger.agent_hash(f"sb3:{p}"))
-    rows = query("SELECT eval_id, summary_json, path FROM eval_summaries WHERE agent_hash IN (%s)"
-                 % ",".join("?" * len(agents)), tuple(agents)) if agents else []  # fmt: skip
+    marks = ",".join("?" * len(agents))
+    sql = f"SELECT eval_id, summary_json, path FROM eval_summaries WHERE agent_hash IN ({marks})"
+    rows = query(sql, tuple(agents)) if agents else []
     comparisons = []
     for eval_id, summary_json, path in rows:
         summary = json.loads(summary_json)
@@ -167,7 +169,8 @@ def repro(run_path: Path) -> dict[str, Any]:
         again = run_games(specs)
         same = all(
             a["winner"] == (None if pd.isna(b["winner"]) else int(b["winner"]))
-            and a["placements"] == json.loads(b["placements"]) and a["rounds"] == int(b["rounds"])
+            and a["placements"] == json.loads(b["placements"])
+            and a["rounds"] == int(b["rounds"])
             for a, (_, b) in zip(again, stored.iterrows(), strict=True)
         )
         comparisons.append({"eval_id": eval_id, "split": summary["split"], "games": len(specs), "match": same})
@@ -213,14 +216,13 @@ def smoke_all() -> dict[str, Any]:
     agent = _agent_of(mcr, False)
     stage("evaluate_select", lambda: evaluate_agent(agent, ["random_legal", "roi_markov_v1"], "select",
                                                     so.select_eval_seeds, experiment="mcr_official_2p",
-                                                    label="official"))  # fmt: skip
+                                                    smoke=True))  # fmt: skip
     stage("evaluate_smoke", lambda: evaluate_experiment_agents("mcr_official_2p", [mcr], smoke=True))
     for abl in SMOKE_ABLATIONS:
         res = stage(f"train_{abl}", lambda abl=abl: train(abl, 1, smoke=True))
         stage(f"evaluate_{abl}", lambda abl=abl, res=res: evaluate_experiment_agents(abl, [res], smoke=True))
     sp = stage("selfplay", lambda: train("selfplay_official_2p", 1, smoke=True))
-    stage("evaluate_selfplay", lambda: evaluate_experiment_agents("selfplay_official_2p", [sp], smoke=True)
-          + selfplay_extra([sp], smoke=True))  # fmt: skip
+    stage("evaluate_selfplay", lambda: evaluate_experiment_agents("selfplay_official_2p", [sp], smoke=True))
     fourp = {}
     for exp4 in ("fourp_official", "fourp_single_seat_fallback", "ablation_a3_kingmaking_4p"):
         fourp[exp4] = stage(f"train_{exp4}", lambda exp4=exp4: train(exp4, 1, smoke=True))

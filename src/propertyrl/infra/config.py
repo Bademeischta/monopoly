@@ -24,6 +24,8 @@ from propertyrl.engine.ruleset import Ruleset
 #: Repository root (src/propertyrl/infra/config.py -> repo).
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = REPO_ROOT / "configs"
+#: Label of every smoke result (A-34).
+SMOKE_LABEL = "SMOKE – keine Aussagekraft"
 
 RULESET_FILES = {
     "OFFICIAL_US_CLASSIC_2008": "official_us_classic_2008.yaml",

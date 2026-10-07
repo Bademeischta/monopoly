@@ -391,7 +391,7 @@ class PFSPCallback(BaseCallback):
         return True
 
     def _on_rollout_end(self) -> None:
-        stats = {k: [int(round(v[0])), int(round(v[1]))] for k, v in self.ctx.pfsp.items()}
+        stats = {k: [round(v[0]), round(v[1])] for k, v in self.ctx.pfsp.items()}
         self.training_env.env_method("set_opponent_weights", pfsp_weights(stats))
 
 

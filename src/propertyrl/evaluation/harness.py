@@ -76,7 +76,11 @@ def play_game(spec: GameSpec) -> dict[str, Any]:
             d = eng.pending()
             assert d is not None
             response = respond(policies[d.seat], eng, rngs[d.seat])
-            if d.kind == D.MAIN and d.phase == D.JAIL_PRE_ROLL and response in (A.ROLL, A.PAY_JAIL_FINE, A.USE_JAIL_CARD):
+            if (
+                d.kind == D.MAIN
+                and d.phase == D.JAIL_PRE_ROLL
+                and response in (A.ROLL, A.PAY_JAIL_FINE, A.USE_JAIL_CARD)
+            ):
                 bucket = jail_bucket(eng.state.round_index)
                 jail["stay" if response == A.ROLL else "leave"][bucket][d.seat] += 1
             eng.apply(response)
@@ -113,8 +117,7 @@ def play_game(spec: GameSpec) -> dict[str, Any]:
         "counters": counters,
         "jail_decisions": jail,
         "complete_groups": [
-            sum(1 for g in range(C.N_COLOR_GROUPS) if all(st.owner[p] == s for p in C.GROUP_PROPS[g]))
-            for s in range(n)
+            sum(1 for g in range(C.N_COLOR_GROUPS) if all(st.owner[p] == s for p in C.GROUP_PROPS[g])) for s in range(n)
         ],
         "runtime_s": time.perf_counter() - start,
     }
@@ -141,7 +144,7 @@ def _worker_init() -> None:
 
         torch.set_num_threads(1)
     except ImportError:  # pragma: no cover - torch is a runtime dependency
-        pass
+        log.debug("torch not importable in evaluation worker; heuristic policies only")
 
 
 def default_workers() -> int:

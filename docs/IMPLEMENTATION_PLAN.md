@@ -102,3 +102,18 @@ Werk-Sonderwurfs 100 + k. A-110 Zahlungen an inzwischen bankrotte Gläubiger ver
 Fensterprotokoll entstehen in Fenstern keine Zahlungspflichten; der Randfall „Bankrott während eines
 Out-of-Turn-Fensters“ wird als „Bankrott, während Out-of-Turn-Fenster ausstehen“ getestet. Weitere
 Annahmen A-112 ff. siehe ASSUMPTIONS.md.
+
+## 8. Nicht-Ziele (§0.3, bewusst nicht implementiert)
+
+GUI, Web-Dashboard, Human-vs-AI und jede Evaluation mit Menschen; LLM-Agenten (Verhandlung, Coach); MCTS,
+Rollout-Planer und AlphaZero-artige Verfahren; Algorithmenvergleich über MaskablePPO hinaus (DQN, A2C, SAC)
+sowie tabellarisches Q-Learning und MCTS als Baselines; Imitation Learning und Behavior Cloning;
+GNN-Observation; Emergent Communication; Team-Play (2 gegen 2), asymmetrische Rollen, Multi-Task-Learning;
+Transfer Learning und Novelty Injection; gelernter Handel (Tier-2-Handelskopf mit bedingten Masken), gelernte
+Auktionen und gelernte Liquidation; Out-of-Turn-Fenster im RESEARCH-Modus; zentraler Critic und
+Population-Based Training; RLlib, Ray, Ray Tune, MinIO/S3, Docker, Cloud-Orchestrierung; Cython oder Numba;
+Paper oder Blogpost.
+
+Vorbereitet (implementiert) sind nur: billiger Clone des Zustands für spätere Rollouts (`Engine.clone`),
+vollständige Trade-Objekte in der Engine (`TradeOffer`), DEBT-Entscheidungen mit Tier-1-IDs und die
+`ExternalAgentAdapter`-Schnittstelle (`docs/EXTERNAL_ANCHOR.md`).

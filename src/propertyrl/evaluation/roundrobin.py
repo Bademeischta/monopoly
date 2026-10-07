@@ -51,7 +51,10 @@ def significant_cycles(pairs: dict[tuple[str, str], dict[str, Any]], policies: l
 
 
 def run_round_robin(
-    seeds_per_block: int | None = None, smoke: bool = False, workers: int | None = None, policies: list[str] | None = None
+    seeds_per_block: int | None = None,
+    smoke: bool = False,
+    workers: int | None = None,
+    policies: list[str] | None = None,
 ) -> dict[str, Any]:
     """All pairs of the benchmark policies in 2P duplicate on SELECT block 1 and block 2 separately."""
     pols = list(policies or BENCHMARK_POLICIES)

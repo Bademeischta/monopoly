@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from propertyrl.infra.config import REPO_ROOT, frozen_dir
-from propertyrl.infra.storage import artifacts_dir, query, read_json, record_gate, sub_artifacts
+from propertyrl.infra.storage import artifacts_dir, query, read_json, record_gate, sub_artifacts, write_json
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -18,6 +19,8 @@ CI_FUZZ = 100_000
 GATE_FUZZ = 10_000_000
 CI_MARKOV = 1_000_000
 GATE_MARKOV = 10_000_000
+CI_MASK = 100_000
+GATE_MASK = 1_000_000
 DOCS_G0 = ("RULESPEC.md", "ACTION_SCHEMA.md", "HEURISTICS_SPEC.md", "TEST_MATRIX.md", "BENCHMARK_PROTOCOL.md")
 
 
@@ -109,14 +112,23 @@ def _size_status(value: int, ci: int, gate: int) -> str:
     return READY
 
 
+def confirm_v_points() -> Path:
+    """Record that the user checked the verification points V1–V6 of RULESPEC (G0)."""
+    import time
+
+    path = frozen_dir() / "v_points_confirmed.json"
+    write_json(path, {"confirmed": True, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
+    return path
+
+
 def gate_g0() -> list[dict[str, str]]:
     docs = REPO_ROOT / "docs"
     missing = [d for d in DOCS_G0 if not (docs / d).exists()]
     crit = [_crit("Artefaktsatz (RULESPEC, Action Schema, Heuristik-Spezifikation, Testmatrix, Benchmark-Protokoll)",
                   FAIL if missing else PASS, f"fehlend: {missing}" if missing else "vollständig")]  # fmt: skip
     confirmed = frozen_dir() / "v_points_confirmed.json"
-    crit.append(_crit("V1–V6 geprüft", PASS, "vom Nutzer bestätigt" if confirmed.exists()
-                      else "Fallback: Standardwerte als Konfiguration eingefroren (Bestätigung durch den Nutzer offen)"))  # fmt: skip
+    fallback = "Fallback: Standardwerte als Konfiguration eingefroren (Bestätigung durch den Nutzer offen)"
+    crit.append(_crit("V1–V6 geprüft", PASS, "vom Nutzer bestätigt" if confirmed.exists() else fallback))
     return crit
 
 
@@ -172,6 +184,17 @@ def gate_g1() -> list[dict[str, str]]:
     return crit
 
 
+def _mask_criterion(res: dict[str, str]) -> dict[str, str]:
+    """0 illegal actions in masked random steps; the step count is part of the test id (steps<N>)."""
+    name = "0 illegale Aktionen (Maskentest)"
+    status, detail = _tests_status(res, "test_masked_random_steps_never_illegal")
+    if status != PASS:
+        return _crit(name, status, detail)
+    counts = [int(m) for k, v in res.items() if v == "passed" for m in re.findall(r"never_illegal\[steps(\d+)\]", k)]
+    steps = max(counts, default=0)
+    return _crit(name, _size_status(steps, CI_MASK, GATE_MASK) if steps else PASS, f"{steps:,} maskierte Schritte")
+
+
 def gate_g2() -> list[dict[str, str]]:
     res = junit_results()
     crit = []
@@ -179,12 +202,12 @@ def gate_g2() -> list[dict[str, str]]:
         ("check_env Gymnasium", "test_gymnasium_check_env"),
         ("check_env SB3", "test_sb3_check_env"),
         ("PettingZoo api_test", "test_pettingzoo_api"),
-        ("0 illegale Aktionen (Maskentest)", "test_masked_random_steps_never_illegal"),
         ("SubprocVecEnv (spawn)", "test_dummy_and_subproc_spawn_identical"),
         ("Mehrsitz-Äquivalenz", "test_one_learning_seat_equivalent_to_single_env"),
     ):
         status, detail = _tests_status(res, frag)
         crit.append(_crit(name, status, detail))
+    crit.append(_mask_criterion(res))
     bench = sorted(sub_artifacts("benchmarks").glob("benchmark_*.json"))
     if bench:
         data = read_json(bench[-1])
@@ -237,41 +260,48 @@ def gate_g4() -> list[dict[str, str]]:
     return [c1, c2, c3]
 
 
-def _z_from_test(experiment: str) -> tuple[str, str]:
-    rows = _eval_rows(experiment, "test", False)
-    smoke_rows = _eval_rows(experiment, "smoke", True)
-    if not rows:
-        return READY, f"Smoke-Nachweis: {len(smoke_rows)} SMOKE-Auswertungen" if smoke_rows else "kein Smoke-Nachweis"
-    from propertyrl.evaluation.report import _primary
-
-    prim = [_primary(r) for r in rows]
-    rates = [p[1]["win_rate"] for p in prim if p]
-    lowers = [p[1]["bootstrap"]["lower"] for p in prim if p]
-    ok = len(rates) >= 3 and all(r > 0.5 for r in rates) and min(lowers) > 0.5
-    return (PASS if ok else FAIL), f"Siegquoten {[round(r, 3) for r in rates]}"
+def _smoke_evals(*experiments: str) -> str:
+    n = sum(len(_eval_rows(e, "smoke", True)) for e in experiments)
+    return f"Smoke-Nachweis: {n} SMOKE-Auswertungen" if n else "kein Smoke-Nachweis"
 
 
 def gate_g5() -> list[dict[str, str]]:
-    status, detail = _z_from_test("mcr_official_2p")
-    return [_crit("Z3 auf TEST (MCR)", status, detail)]
+    from propertyrl.evaluation.criteria import z3
+
+    res = z3("mcr_official_2p", "test", False)
+    if not res["evaluated"]:
+        return [_crit("Z3 auf TEST (MCR)", READY, _smoke_evals("mcr_official_2p"))]
+    pooled = res["pooled"]
+    detail = (f"{len(res['agents'])} Seeds, Siegquoten {[round(a['win_rate'] or 0.0, 3) for a in res['agents']]}, "
+              f"gepoolt {pooled['win_rate']:.3f} [{pooled['lower']:.3f}, {pooled['upper']:.3f}]")  # fmt: skip
+    return [_crit("Z3 auf TEST (MCR)", PASS if res["passed"] else FAIL, detail)]
 
 
 def gate_g6() -> list[dict[str, str]]:
-    status, detail = _z_from_test("selfplay_official_2p")
-    return [_crit("Z4 auf TEST (Self-Play)", status, detail)]
+    from propertyrl.evaluation.criteria import z4
+
+    res = z4("test", False)
+    if not res["evaluated"]:
+        return [_crit("Z4 auf TEST (Self-Play)", READY, _smoke_evals("selfplay_official_2p"))]
+    parts = [f"a={c['a_passed']}, b={c['b_passed']}, c={c['c_passed']}" for c in res["champions"]]
+    return [_crit("Z4 auf TEST (Self-Play)", PASS if res["passed"] else FAIL, "; ".join(parts))]
 
 
 def gate_g7() -> list[dict[str, str]]:
-    rows = _eval_rows("fourp_official", "test", False) + _eval_rows("fourp_single_seat_fallback", "test", False)
-    smoke_rows = _eval_rows("fourp_official", "smoke", True) + _eval_rows("fourp_single_seat_fallback", "smoke", True)
-    if not rows:
-        ev = f"Smoke-Nachweis: {len(smoke_rows)} SMOKE-Auswertungen" if smoke_rows else "kein Smoke-Nachweis"
-        return [_crit("Z5 (4P, Stretch)", READY, ev)]
-    ok = any(s.get("wilson_lower", 0) > 0.25 for r in rows for s in r["opponents"].values())
-    return [_crit("Z5 (4P, Stretch)", PASS if ok else FAIL, f"{len(rows)} Auswertungen")]
+    from propertyrl.evaluation.criteria import z5
+
+    results = [z5(e, "test", False) for e in ("fourp_official", "fourp_single_seat_fallback")]
+    if not any(r["evaluated"] for r in results):
+        return [_crit("Z5 (4P, Stretch)", READY, _smoke_evals("fourp_official", "fourp_single_seat_fallback"))]
+    ok = any(r["passed"] for r in results)
+    detail = "; ".join(f"{r['experiment']}: " + ", ".join(f"Platz 1 {a['first_place_rate']:.3f}" for a in r["agents"])
+                       for r in results if r["evaluated"])  # fmt: skip
+    return [_crit("Z5 (4P, Stretch)", PASS if ok else FAIL, detail)]
 
 
 def gate_g8() -> list[dict[str, str]]:
+    from propertyrl.infra.storage import reports_dir
+
     repro = sorted(sub_artifacts("repro").glob("repro_*.json"))
     real = [p for p in repro if "smoke" not in p.name]
     smoke = [p for p in repro if "smoke" in p.name]
@@ -279,7 +309,15 @@ def gate_g8() -> list[dict[str, str]]:
         return [_crit("TEST-Bericht, Ablationen, Repro-Paket", READY,
                       f"Smoke-Nachweis: {smoke[-1].name}" if smoke else "kein Smoke-Nachweis")]  # fmt: skip
     data = read_json(real[-1])
-    return [_crit("TEST-Bericht, Ablationen, Repro-Paket", PASS if data.get("match") else FAIL, real[-1].name)]
+    report = reports_dir() / "mcr_official_2p.md"
+    ablations = [e for e in ("ablation_a0_terminal", "mcr_official_2p") if _eval_rows(e, "test", False)]
+    crit = [
+        _crit("Repro-Paket (propertyrl repro) identisch", PASS if data.get("match") else FAIL, real[-1].name),
+        _crit("TEST-Bericht", PASS if report.exists() else FAIL, str(report.name)),
+        _crit("Ablationen mindestens A0 und A1 auf TEST", PASS if len(ablations) == 2 else FAIL,
+              f"vorhanden: {ablations}"),
+    ]  # fmt: skip
+    return crit
 
 
 _GATE_FUNCS = {

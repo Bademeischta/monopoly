@@ -65,10 +65,16 @@ class LayerNormExtractor(BaseFeaturesExtractor):
 
 
 # ---------------------------------------------------------------------------- configuration
-def frozen_gamma(default: float) -> float:
-    """gamma from artifacts/frozen/gamma.json (written by the sweep), else the default."""
-    data = read_frozen("gamma")
-    return float(data["gamma"]) if data and "gamma" in data else float(default)
+def frozen_gamma(default: float, smoke: bool = False) -> float:
+    """gamma from artifacts/frozen/gamma.json (written by the sweep), else the default.
+
+    Smoke runs prefer gamma_smoke.json so that the smoke chain sweep -> training is exercised (A-114).
+    """
+    for name in ("gamma_smoke", "gamma") if smoke else ("gamma",):
+        data = read_frozen(name)
+        if data and "gamma" in data:
+            return float(data["gamma"])
+    return float(default)
 
 
 def resolve(
@@ -85,7 +91,10 @@ def resolve(
         ppo = ppo.model_copy(update=exp.training.ppo_overrides)
     if smoke:
         exp, ppo = apply_smoke(exp, ppo)
-    g = gamma if gamma is not None else (frozen_gamma(ppo.gamma) if exp.env.gamma == "frozen" else float(exp.env.gamma))
+    if gamma is not None:
+        g = float(gamma)
+    else:
+        g = frozen_gamma(ppo.gamma, smoke) if exp.env.gamma == "frozen" else float(exp.env.gamma)
     upd: dict[str, Any] = {"gamma": g, "n_envs": max(1, min(ppo.n_envs, os.cpu_count() or 1))}
     if timesteps is not None:
         upd["total_timesteps"] = int(timesteps)
@@ -196,8 +205,9 @@ def train(
     gamma: float | None = None,
     timesteps: int | None = None,
     run_tag: str = "",
+    wandb: bool = False,
 ) -> dict[str, Any]:
-    """Train one run of an experiment and return a summary dict."""
+    """Train one run of an experiment and return a summary dict (``wandb``: optional technical metrics)."""
     if resume is not None:
         meta = load_run_meta(resume)
         experiment = meta["experiment"]
@@ -246,7 +256,11 @@ def train(
         tensorboard_log=tb,
     )  # fmt: skip
     if resume is not None:
-        last = Path(ctx.checkpoints[-1]) if ctx.checkpoints else rdir / "final.zip"
+        # The most recent state: final.zip (written on every exit, including interrupts) or the last checkpoint.
+        candidates = [p for p in [*(Path(c) for c in ctx.checkpoints[-1:]), rdir / "final.zip"] if p.exists()]
+        if not candidates:
+            raise ConfigError(f"no checkpoint to resume in {rdir}")
+        last = max(candidates, key=lambda p: p.stat().st_mtime_ns)
         from propertyrl.agents.sb3_agent import read_metadata
 
         read_metadata(last)
@@ -275,14 +289,21 @@ def train(
                  ExplainedVarianceWarning(ctx, ppo.total_timesteps)]  # fmt: skip
     if exp.opponents.mode in ("selfplay", "fourp", "fourp_fallback"):
         callbacks.append(PFSPCallback(ctx))
+    if wandb:
+        from propertyrl.training.wandb_logging import WandbCallback
+
+        technical = {"experiment": experiment, "seed": seed, "config_hash": meta["config_hash"], **kwargs}
+        callbacks.append(WandbCallback(run_id, experiment, {k: str(v) for k, v in technical.items()}, str(rdir)))
     if exp.opponents.mode == "fourp_fallback":
         latest = save_checkpoint(model, ctx, rdir / "latest.zip", "latest")
         venv.env_method("reload_opponents", {"latest_path": str(latest)})
         callbacks.append(LatestSyncCallback(ctx))
     status = "completed"
     try:
+        # On resume SB3 adds the already completed steps, so only the remainder is requested.
+        remaining = ppo.total_timesteps if resume is None else max(0, ppo.total_timesteps - int(model.num_timesteps))
         model.learn(
-            total_timesteps=ppo.total_timesteps,
+            total_timesteps=remaining,
             callback=CallbackList(callbacks),
             reset_num_timesteps=resume is None,
             tb_log_name="ppo",

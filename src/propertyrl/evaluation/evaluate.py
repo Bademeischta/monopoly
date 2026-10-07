@@ -10,13 +10,14 @@ from typing import Any
 
 import pandas as pd
 
+from propertyrl.agents.registry import is_policy_spec
 from propertyrl.engine.errors import ConfigError
 from propertyrl.evaluation import ledger
 from propertyrl.evaluation.duplicate import duplicate_specs, per_seed_scores, summarize
 from propertyrl.evaluation.harness import run_games
 from propertyrl.evaluation.metrics import agent_metrics, seat_win_rates
 from propertyrl.evaluation.seeds import subset
-from propertyrl.infra.config import read_frozen
+from propertyrl.infra.config import SMOKE_LABEL, read_frozen
 from propertyrl.infra.storage import record_eval_summary, sub_artifacts, write_json
 
 log = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ def strongest_baseline() -> str:
 
 def resolve_agent(agent: str) -> str:
     """Accept policy specs, checkpoint paths (*.zip) and ``experiment:<name>[:seed]`` references."""
-    if agent.endswith(".zip") and ":" not in agent.split("/")[-1]:
+    if agent.endswith(".zip") and not is_policy_spec(agent):
         return f"sb3:{Path(agent).resolve()}"
     if agent.startswith("experiment:"):
         from propertyrl.training.train import find_checkpoint
@@ -129,7 +130,7 @@ def evaluate_agent(
         "agent_hash": a_hash,
         "split": split,
         "smoke": smoke or split == "smoke",
-        "label": "SMOKE – keine Aussagekraft" if (smoke or split == "smoke") else label,
+        "label": SMOKE_LABEL if (smoke or split == "smoke") else label,
         "experiment": experiment,
         "ruleset_id": ruleset_id,
         "n_players": n_players,

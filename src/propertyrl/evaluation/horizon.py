@@ -34,7 +34,9 @@ def _specs(n_games: int, n_players: int, smoke: bool) -> list[GameSpec]:
     return specs
 
 
-def calibrate(n_games: int = 2000, n_players: int = 2, smoke: bool = False, workers: int | None = None) -> dict[str, Any]:
+def calibrate(
+    n_games: int = 2000, n_players: int = 2, smoke: bool = False, workers: int | None = None
+) -> dict[str, Any]:
     """Play games without horizon (up to 5000 rounds) and derive the horizon."""
     start = time.perf_counter()
     records = run_games(_specs(n_games, n_players, smoke), workers=workers)

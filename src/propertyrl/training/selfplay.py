@@ -60,7 +60,9 @@ def pfsp_weights(stats: dict[str, list[int]]) -> dict[str, float]:
     return out
 
 
-def evaluate_pair(agent: str, opponent: str, ruleset: str, seeds: list[int], workers: int | None = None) -> dict[str, Any]:
+def evaluate_pair(
+    agent: str, opponent: str, ruleset: str, seeds: list[int], workers: int | None = None
+) -> dict[str, Any]:
     """Duplicate evaluation of ``agent`` against one opponent on the given seeds."""
     records = run_games(duplicate_specs(agent, [opponent], seeds, ruleset, 2), workers=workers)
     return summarize(records, agent, bootstrap_reps=1000)

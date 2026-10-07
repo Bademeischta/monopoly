@@ -1,6 +1,7 @@
 """Evaluation: seeds, harness, duplicate, statistics, ratings, metrics, kingmaking, round robin, horizon,
 TEST ledger and reports (§8)."""
 
+from propertyrl.evaluation.criteria import load_records, z3, z4, z5
 from propertyrl.evaluation.duplicate import duplicate_specs, score, summarize
 from propertyrl.evaluation.evaluate import evaluate_agent, strongest_baseline
 from propertyrl.evaluation.harness import GameSpec, play_game, run_games
@@ -27,6 +28,7 @@ __all__ = [
     "generate_report",
     "holm",
     "load_pools",
+    "load_records",
     "openskill",
     "paired_bootstrap",
     "play_game",
@@ -41,4 +43,7 @@ __all__ = [
     "summarize",
     "train_seed",
     "wilson",
+    "z3",
+    "z4",
+    "z5",
 ]

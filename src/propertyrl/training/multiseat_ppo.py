@@ -39,7 +39,7 @@ class MultiSeatSMDPMaskablePPO(SMDPMaskablePPO):
         self._last_seats = self._reset_seats(self.env)
         return out
 
-    def collect_rollouts(  # noqa: C901
+    def collect_rollouts(
         self,
         env: VecEnv,
         callback: BaseCallback,

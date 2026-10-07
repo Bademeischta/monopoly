@@ -35,7 +35,7 @@ class SMDPMaskablePPO(MaskablePPO):
         if abs(float(env_gamma) - float(self.gamma)) > 1e-12:
             raise ConfigError(f"gamma mismatch: environment {env_gamma} != algorithm {self.gamma}")
 
-    def collect_rollouts(  # noqa: C901
+    def collect_rollouts(
         self,
         env: VecEnv,
         callback: BaseCallback,

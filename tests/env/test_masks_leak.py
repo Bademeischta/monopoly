@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 import numpy as np
+import pytest
 from envhelpers import cfg
 from helpers import OFFICIAL, scenario
 
@@ -15,7 +16,8 @@ from propertyrl.env.opponents import OpponentConfig
 MASK_STEPS = int(os.environ.get("PROPERTYRL_MASK_STEPS", "100000"))
 
 
-def test_masked_random_steps_never_illegal() -> None:
+@pytest.mark.parametrize("mask_steps", [MASK_STEPS], ids=[f"steps{MASK_STEPS}"])
+def test_masked_random_steps_never_illegal(mask_steps: int) -> None:
     configs = [
         cfg(n_players=2, opponents=OpponentConfig(mode="fixed", fixed=("random_legal",), epsilon=0.0)),
         cfg(n_players=4, opponents=OpponentConfig(mode="fixed", fixed=("strong_b_v1", "random_legal"))),
@@ -25,11 +27,11 @@ def test_masked_random_steps_never_illegal() -> None:
     steps = 0
     illegal = 0
     k = 0
-    while steps < MASK_STEPS:
+    while steps < mask_steps:
         env = PropertySingleAgentEnv(configs[k % len(configs)], rank=k)
         env.reset(seed=1000 + k)
         k += 1
-        for _ in range(MASK_STEPS // 6 + 1):
+        for _ in range(mask_steps // 6 + 1):
             mask = env.action_masks()
             assert mask.any()
             action = int(rng.choice(np.flatnonzero(mask)))
@@ -38,9 +40,9 @@ def test_masked_random_steps_never_illegal() -> None:
             steps += 1
             if term or trunc:
                 env.reset()
-            if steps >= MASK_STEPS:
+            if steps >= mask_steps:
                 break
-    assert illegal == 0 and steps >= MASK_STEPS
+    assert illegal == 0 and steps >= mask_steps
 
 
 def test_illegal_action_raises() -> None:

@@ -28,6 +28,14 @@ TRAINING_OPPONENTS = ("random_legal", "roi_markov_v1", "strong_a_v1", "strong_b_
 _CACHE: dict[str, Policy] = {}
 
 
+SPEC_PREFIXES = ("with_delegation", "epsilon", "sb3", "sb3s", "snapshot", "latest", "external")
+
+
+def is_policy_spec(spec: str) -> bool:
+    """True for baseline names and prefixed specs (as opposed to bare checkpoint paths)."""
+    return spec in BASELINES or spec.partition(":")[0] in SPEC_PREFIXES
+
+
 def make_policy(spec: str) -> Policy:
     """Build a policy from a spec string.
 

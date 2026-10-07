@@ -71,9 +71,7 @@ class SeatChainRolloutBuffer(DurationMaskableRolloutBuffer):
         self.valid = np.zeros(shape, dtype=np.float32)
         self.row_dones = np.zeros(shape, dtype=np.float32)
 
-    def close_row(
-        self, row: int, env: int, reward: float, duration: int, done: bool, next_row: int
-    ) -> None:
+    def close_row(self, row: int, env: int, reward: float, duration: int, done: bool, next_row: int) -> None:
         """Fill a row once its transition closed."""
         self.rewards[row, env] = reward
         self.durations[row, env] = duration

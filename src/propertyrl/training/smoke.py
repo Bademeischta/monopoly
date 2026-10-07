@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from propertyrl.infra.config import ExperimentConfig, PPOConfig, SmokeOverrides, load_smoke_overrides
+from propertyrl.infra.config import SMOKE_LABEL, ExperimentConfig, PPOConfig, SmokeOverrides, load_smoke_overrides
 
-SMOKE_LABEL = "SMOKE – keine Aussagekraft"
 MCR_EXPERIMENT = "mcr_official_2p"
+__all__ = ["MCR_EXPERIMENT", "SMOKE_LABEL", "apply_smoke", "smoke_settings"]
 
 
 def smoke_settings() -> SmokeOverrides:
