@@ -128,6 +128,41 @@ def bench_vecenv(n_envs: int, vec_env: str, seconds: float) -> dict[str, Any]:
     }
 
 
+def bench_ppo(n_envs: int, rollouts: int = 2) -> dict[str, Any]:
+    """Training throughput including PPO updates (SMDP-MaskablePPO, ppo_default.yaml, DummyVecEnv)."""
+    from propertyrl.infra.config import load_ppo_config
+    from propertyrl.training.smdp_ppo import SMDPMaskablePPO
+    from propertyrl.training.train import policy_kwargs
+
+    ppo = load_ppo_config()
+    cfg = EnvConfig(
+        opponents=OpponentConfig(mode="fixed", fixed=("strong_a_v1", "strong_b_v1"), epsilon=0.05), gamma=ppo.gamma
+    )
+    venv = make_vec_env(cfg, n_envs, 321)
+    try:
+        model = SMDPMaskablePPO(
+            "MlpPolicy",
+            venv,
+            n_steps=ppo.n_steps,
+            batch_size=min(ppo.batch_size, n_envs * ppo.n_steps),
+            n_epochs=ppo.n_epochs,
+            learning_rate=ppo.learning_rate,
+            gamma=ppo.gamma,
+            gae_lambda=ppo.gae_lambda,
+            policy_kwargs=policy_kwargs(ppo),
+            device="cpu",
+            seed=0,
+            verbose=0,
+        )
+        steps = n_envs * ppo.n_steps * rollouts
+        start = time.perf_counter()
+        model.learn(total_timesteps=steps)
+        elapsed = time.perf_counter() - start
+    finally:
+        venv.close()
+    return {"n_envs": n_envs, "vec_env": "dummy", "timesteps": steps, "train_steps_per_s": steps / elapsed}
+
+
 def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | None = None) -> dict[str, Any]:
     """Run all measurements and write artifacts/benchmarks/benchmark_<stamp>.json."""
     cores = os.cpu_count() or 1
@@ -152,6 +187,7 @@ def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | Non
         },
         "gym_dummy": [bench_vecenv(n, "dummy", seconds) for n in env_list if n <= 16],
         "subproc": [bench_vecenv(n, "subproc", seconds) for n in env_list],
+        "ppo": bench_ppo(min(2, cores) if smoke else min(16, cores), rollouts=1 if smoke else 2),
         "skipped_n_envs": skipped,
         "memory_available_mb": psutil.virtual_memory().available / 2**20,
     }

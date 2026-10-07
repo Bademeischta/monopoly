@@ -152,6 +152,7 @@ def test_benchmark_smoke(fresh_home: Path) -> None:
     assert {"with_logging", "without_logging"} <= set(res["gym_env"])
     assert res["engine"]["without_logging"]["games"] >= 1
     assert res["recommendation"]["n_envs"] == 1
+    assert res["ppo"]["train_steps_per_s"] > 0
     assert Path(res["path"]).exists()
     assert gates.evaluate_gates("G2")["G2"]["criteria"][-1]["status"] == gates.PASS
 

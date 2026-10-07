@@ -18,7 +18,8 @@ DEFAULT_GAMES_PER_S = 15.0
 def measured_throughput() -> dict[str, Any]:
     """Training steps/s from finished runs (preferred) and evaluation games/s from the benchmark."""
     train_sps = None
-    rows = query("SELECT run_json FROM runs WHERE status = 'completed'")
+    # Smoke runs (2 envs, frequent evaluations) are not representative and never enter the estimate.
+    rows = query("SELECT run_json FROM runs WHERE status = 'completed' AND smoke = 0")
     rates = []
     for (raw,) in rows:
         meta = json.loads(raw)
@@ -35,7 +36,8 @@ def measured_throughput() -> dict[str, Any]:
         data = read_json(bench[-1])
         games = data["engine"]["without_logging"]["games_per_s"] * max(1, (os.cpu_count() or 2) - 1)
         if train_sps is None:
-            train_sps = 0.5 * data["recommendation"]["env_steps_per_s"]
+            ppo = data.get("ppo") or {}
+            train_sps = ppo.get("train_steps_per_s") or 0.5 * data["recommendation"]["env_steps_per_s"]
     return {
         "train_steps_per_s": train_sps or DEFAULT_TRAIN_SPS,
         "eval_games_per_s": games or DEFAULT_GAMES_PER_S,
