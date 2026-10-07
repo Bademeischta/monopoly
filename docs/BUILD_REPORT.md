@@ -34,7 +34,7 @@ Punkte und die Befehle für die vollen Gate-Läufe des Nutzers.
 |---|---|---|---|
 | 1 | `pip install -e .[dev]` in frischer venv; requirements-lock.txt | ✅ erfüllt | 579 s; `requirements-lock.txt` (83 Pins) aus dieser venv per `pip freeze` |
 | 2 | ruff check, ruff format --check, mypy engine+env | ✅ erfüllt | „All checks passed!“, „169 files already formatted“, mypy „no issues found in 45 source files“ |
-| 3 | `pytest -n auto --cov=propertyrl --cov-branch` grün, Coverage-Schwellen | ✅ erfüllt | Abschlusslauf siehe §5; Engine 98,4 % Zeilen / 95,7 % Zweige, gesamt 89,1 % Zeilen |
+| 3 | `pytest -n auto --cov=propertyrl --cov-branch` grün, Coverage-Schwellen | ✅ erfüllt | Abschlusslauf 425 passed (§12); Engine 98,4 % Zeilen / 95,7 % Zweige, gesamt 89,2 % Zeilen |
 | 4 | Regel-ID-, Event-Coverage-Test, archivierte Replays, alle Mutanten | ✅ erfüllt | Teil des Testlaufs; `propertyrl gates` G1 |
 | 5 | Fuzz (alle Rulesets + seltene Ereignisse), Markov 1 Mio./0,15 pp; Gate-Varianten | ✅ erfüllt | CI: 700.000 Entscheidungen fehlerfrei, Markov max 0,048 pp; Gate: 10.999.996 Entscheidungen fehlerfrei, Markov 10 Mio. max 0,0134 pp |
 | 6 | check_env (Gymnasium, SB3), api_test, MaskedDiscrete, Maskentest, Leak, SubprocVecEnv spawn, Mehrsitz-Äquivalenz | ✅ erfüllt | Testlauf; Maskentest zusätzlich in Gate-Größe (1.000.000 Schritte) |
@@ -75,7 +75,7 @@ Repository), die Testsuite mit privatem temporären `PROPERTYRL_HOME` (conftest)
 | `propertyrl plan --experiments all` | 106,4 h Training + 23,7 h Evaluation (18,2 %), keine Warnung | 4 s |
 | `propertyrl gates` | G0–G2 PASS (Gate-Größe), G3–G8 bereit, nicht ausgeführt | 1 s |
 | `grep -rn "TODO\|NotImplementedError\|FIXME" src/` | nur 7 Treffer in `agents/external.py` (abstrakte Schnittstelle) | < 1 s |
-| `pytest -n auto --cov=…` (Abschlusslauf) | siehe §5 | siehe §5 |
+| `pytest -n auto --cov=…` (Abschlusslauf) | 425 passed, 0 failed | 1.836 s |
 
 ## 5. Testsuite und Coverage
 
@@ -337,7 +337,10 @@ Wird nach dem Schreiben dieses Berichts mit identischem Befehl wiederholt
 (`pytest -n auto --cov=propertyrl --cov-branch --cov-report=xml:artifacts/test-reports/coverage.xml
 --junitxml=artifacts/test-reports/junit.xml`); das Ergebnis steht unten.
 
-ERGEBNIS_ABSCHLUSSLAUF
+**Ergebnis: 425 passed, 0 failed, 4 Warnungen (PettingZoo-Hinweis „Observation is not a NumPy array“ für
+die Dict-Observation des AEC-Envs) in 1.836 s (30,6 min).** Coverage: Engine 98,41 % Zeilen und 95,70 %
+Zweige, gesamt 89,17 % Zeilen und 82,23 % Zweige. Der anschließende `propertyrl gates`-Lauf liest diese
+Berichte und meldet unverändert G0–G2 PASS (G1/G2 in Gate-Größe) und G3–G8 „bereit, nicht ausgeführt“.
 
 ## 13. Befehle für die vollen Gate-Läufe (Nutzer)
 
