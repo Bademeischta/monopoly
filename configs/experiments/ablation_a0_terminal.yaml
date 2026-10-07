@@ -1,0 +1,21 @@
+# Ablation A0: nur terminale Belohnung.
+name: ablation_a0_terminal
+description: 'Ablation A0: nur terminale Belohnung.'
+label: official
+mode: single
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A0
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+  - 2
+  - 3
+  extended_seeds:
+  - 4
+  - 5

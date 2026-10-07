@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Any
 
 from propertyrl.engine import Bid, BidLevel, Engine, TradeOffer
@@ -100,14 +101,13 @@ def legal_ids(legal: list[bool]) -> list[int]:
     return [i for i, ok in enumerate(legal) if ok]
 
 
-def anti_oscillation(view: PublicState, actions: list[int]) -> list[int]:
-    """Drop actions that would undo an action of this seat in the current window (§5.1)."""
-    seat = view.seat
+def filter_oscillation(window_actions: Sequence[tuple[int, int]], seat: int, actions: list[int]) -> list[int]:
+    """Drop actions that would undo an action of ``seat`` in the current window (§5.1)."""
     mortgaged_now: set[int] = set()
     unmortgaged_now: set[int] = set()
     built_groups: set[int] = set()
     sold_groups: set[int] = set()
-    for s, a in view.window_actions:
+    for s, a in window_actions:
         if s != seat:
             continue
         if A.MORTGAGE_BASE <= a < A.UNMORTGAGE_BASE:
@@ -118,6 +118,8 @@ def anti_oscillation(view: PublicState, actions: list[int]) -> list[int]:
             built_groups.add(C.B_GROUP[a - A.BUILD_BASE])
         elif A.SELL_BASE <= a < A.MORTGAGE_BASE:
             sold_groups.add(C.B_GROUP[a - A.SELL_BASE])
+    if not (mortgaged_now or unmortgaged_now or built_groups or sold_groups):
+        return list(actions)
     out = []
     for a in actions:
         if a >= A.UNMORTGAGE_BASE and a - A.UNMORTGAGE_BASE in mortgaged_now:
@@ -129,6 +131,23 @@ def anti_oscillation(view: PublicState, actions: list[int]) -> list[int]:
         if A.BUILD_BASE <= a < A.SELL_BASE and C.B_GROUP[a - A.BUILD_BASE] in sold_groups:
             continue
         out.append(a)
+    return out
+
+
+def anti_oscillation(view: PublicState, actions: list[int]) -> list[int]:
+    """Drop actions that would undo an action of this seat in the current window (§5.1)."""
+    return filter_oscillation(view.window_actions, view.seat, actions)
+
+
+def filtered_mask(window_actions: Sequence[tuple[int, int]], seat: int, legal: Sequence[bool]) -> list[bool]:
+    """Legal mask with anti-oscillation applied (falls back to ``legal`` if nothing would remain)."""
+    ids = [i for i, ok in enumerate(legal) if ok]
+    kept = filter_oscillation(window_actions, seat, ids)
+    if not kept:
+        return list(legal)
+    out = [False] * len(legal)
+    for a in kept:
+        out[a] = True
     return out
 
 

@@ -1,0 +1,8 @@
+# Packages whose license metadata is missing or ambiguous in pip-licenses, with a justification (§9.6).
+# Format: package name -> {license: <identified license>, reason: <why it is acceptable>}
+packages:
+  cuda-toolkit:
+    license: "NVIDIA CUDA Toolkit EULA (proprietär, weiterverteilbare Laufzeitkomponenten)"
+    reason: >-
+      Wird nur von der CUDA-Variante von torch aus PyPI gezogen; keine GPL/AGPL. Die empfohlene
+      CPU-Installation (README, Index download.pytorch.org/whl/cpu) enthält das Paket nicht.

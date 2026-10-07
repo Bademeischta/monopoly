@@ -1,0 +1,27 @@
+# 4P Shared-Policy-Self-Play (ein Lernsitz) mit latest-Gegnern (Fallback G7).
+name: fourp_single_seat_fallback
+description: 4P Shared-Policy-Self-Play (ein Lernsitz) mit latest-Gegnern (Fallback
+  G7).
+label: official
+mode: single
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 4
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: fourp_fallback
+  snapshot_interval: 200000
+training:
+  seeds:
+  - 1
+  - 2
+  - 3
+evaluation:
+  opponents:
+  - strong_a_v1
+  - strong_b_v1
+  - roi_markov_v1
+  n_test_seeds: frozen
+  n_select_seeds: 200

@@ -1,0 +1,28 @@
+# PPO hyper-parameters (§7.3). gamma is overridden by artifacts/frozen/gamma.json after the sweep.
+n_envs: 16            # capped to the number of CPU cores
+n_steps: 256          # rollout = n_envs * n_steps = 4096
+batch_size: 512
+n_epochs: 10
+learning_rate: 0.0003
+gamma: 0.995
+gae_lambda: 0.95
+clip_range: 0.2
+ent_coef: 0.01
+vf_coef: 0.5
+max_grad_norm: 0.5
+net_arch_pi: [256, 256]
+net_arch_vf: [256, 256]
+activation: relu
+ortho_init: true
+layer_norm: false     # option: LayerNorm on the input via a custom features extractor
+device: cpu
+total_timesteps: 10000000
+checkpoint_interval: 100000
+keep_checkpoints: 10
+select_eval_interval: 500000
+select_eval_seeds: 200
+vec_env: dummy        # subproc after the benchmark recommendation
+budget_hours: 12.0
+eval_budget_fraction: 0.2
+ev_warning_fraction: 0.2
+ev_warning_threshold: 0.3

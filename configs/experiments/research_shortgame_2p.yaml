@@ -1,0 +1,19 @@
+# Vergleich Zeitlimit als Regel: RESEARCH_2P_SHORTGAME_V1 (D-06).
+name: research_shortgame_2p
+description: 'Vergleich Zeitlimit als Regel: RESEARCH_2P_SHORTGAME_V1 (D-06).'
+label: research
+mode: single
+env:
+  ruleset: RESEARCH_2P_SHORTGAME_V1
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+  max_rounds: frozen
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+  - 2
+  - 3

@@ -1,0 +1,24 @@
+# γ-Sweep: Pilotläufe mit γ ∈ {0,99; 0,995; 0,999}, je 2 Mio. Schritte, 1 Seed (§7.7).
+name: gamma_sweep
+description: 'γ-Sweep: Pilotläufe mit γ ∈ {0,99; 0,995; 0,999}, je 2 Mio. Schritte,
+  1 Seed (§7.7).'
+label: official
+mode: sweep
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+sweep:
+  gammas:
+  - 0.99
+  - 0.995
+  - 0.999
+  timesteps: 2000000
+  seed: 1

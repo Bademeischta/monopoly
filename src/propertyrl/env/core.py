@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from propertyrl.agents.base import Policy, decision_kind_key, respond_decision
+from propertyrl.agents.base import Policy, decision_kind_key, filtered_mask, respond_decision
 from propertyrl.agents.registry import make_policy
 from propertyrl.engine import Engine, EngineOptions, IllegalActionError
 from propertyrl.engine import actions as A
@@ -205,10 +205,13 @@ class DecisionCore:
         return encode(eng.state, self.board, self.ruleset, seat, self.phase())
 
     def legal_mask(self) -> np.ndarray:
-        """Legal-action mask of the current learning seat (all False if none)."""
+        """Legal-action mask of the current learning seat with anti-oscillation (A-115); all False if none."""
         if self.current is None or self.eng is None:
             return np.zeros(A.N_ACTIONS, dtype=bool)
-        return np.asarray(self.engine.legal_mask(), dtype=bool)
+        return np.asarray(self._mask_for(self.current, self.engine.legal_mask()), dtype=bool)
+
+    def _mask_for(self, seat: int, legal: list[bool]) -> list[bool]:
+        return filtered_mask(self.engine.state.window_actions, seat, legal)
 
     # ------------------------------------------------------------------ stepping
     def act(self, action: int) -> list[Closed]:
@@ -217,7 +220,7 @@ class DecisionCore:
         if seat is None:
             raise IllegalActionError("no learning seat is deciding", game_seed=self.game_seed)
         eng = self.engine
-        mask = eng.legal_mask()
+        mask = self._mask_for(seat, eng.legal_mask())
         a = int(action)
         if not 0 <= a < A.N_ACTIONS or not mask[a]:
             self.illegal_actions += 1
@@ -269,7 +272,7 @@ class DecisionCore:
                     closed += self._check_bankruptcies()
                     continue
                 assert d.legal is not None
-                legal = d.legal_actions()
+                legal = [i for i, ok in enumerate(self._mask_for(seat, d.legal)) if ok]
                 if self.cfg.auto_skip and len(legal) == 1:
                     eng.apply(legal[0])
                     if self.open[seat]:
@@ -351,6 +354,7 @@ class DecisionCore:
         return {
             "winner": res.winner if st.game_over else None,
             "placement": self.placement(seat),
+            "placements": [self.placement(s) for s in range(n)],
             "won": bool(st.game_over and res.winner == seat),
             "rounds": res.rounds,
             "decisions": res.decisions,

@@ -1,0 +1,19 @@
+# Ablation ohne Handel: TRADE_OFFER liefert für alle Sitze leere Listen.
+name: ablation_no_trade
+description: 'Ablation ohne Handel: TRADE_OFFER liefert für alle Sitze leere Listen.'
+label: official
+mode: single
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+  trade_enabled: false
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+  - 2
+  - 3

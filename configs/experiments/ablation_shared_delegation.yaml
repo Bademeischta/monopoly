@@ -1,0 +1,19 @@
+# Kontroll-Ablation: alle Benchmark-Gegner mit delegation_v1 (WithDelegation).
+name: ablation_shared_delegation
+description: 'Kontroll-Ablation: alle Benchmark-Gegner mit delegation_v1 (WithDelegation).'
+label: official
+mode: single
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: curriculum
+  shared_delegation: true
+training:
+  seeds:
+  - 1
+  - 2
+  - 3

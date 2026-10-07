@@ -1,0 +1,20 @@
+# Fallback nach G5-Fehlschlag: RESEARCH_2P_BOUNDED_V1 (Ergebnisse als Research beschriftet).
+name: fallback_research_2p
+description: 'Fallback nach G5-Fehlschlag: RESEARCH_2P_BOUNDED_V1 (Ergebnisse als
+  Research beschriftet).'
+label: research
+mode: single
+env:
+  ruleset: RESEARCH_2P_BOUNDED_V1
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+  - 2
+  - 3
+requires_gate_failure: G5

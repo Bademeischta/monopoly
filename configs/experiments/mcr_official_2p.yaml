@@ -1,0 +1,21 @@
+# MCR: 2 Spieler, OFFICIAL, PBRS (A1), Curriculum, 3 Trainingsseeds (G5).
+name: mcr_official_2p
+description: 'MCR: 2 Spieler, OFFICIAL, PBRS (A1), Curriculum, 3 Trainingsseeds (G5).'
+label: official
+mode: single
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+  - 2
+  - 3
+  extended_seeds:
+  - 4
+  - 5

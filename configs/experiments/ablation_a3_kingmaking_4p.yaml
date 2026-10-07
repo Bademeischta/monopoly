@@ -1,0 +1,27 @@
+# Ablation A3 (nur 4P): PBRS plus Kingmaking-Malus (Proxy).
+name: ablation_a3_kingmaking_4p
+description: 'Ablation A3 (nur 4P): PBRS plus Kingmaking-Malus (Proxy).'
+label: official
+mode: multiseat
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 4
+  reward_variant: A3
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: fourp
+  snapshot_interval: 200000
+training:
+  seeds:
+  - 1
+  - 2
+  - 3
+  algorithm: multiseat_ppo
+evaluation:
+  opponents:
+  - strong_a_v1
+  - strong_b_v1
+  - roi_markov_v1
+  n_test_seeds: frozen
+  n_select_seeds: 200

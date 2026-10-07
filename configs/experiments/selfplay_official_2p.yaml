@@ -1,0 +1,30 @@
+# Self-Play 2P ab dem MCR-Checkpoint mit Snapshot-Pool, PFSP und Champion-Gate (G6).
+name: selfplay_official_2p
+description: Self-Play 2P ab dem MCR-Checkpoint mit Snapshot-Pool, PFSP und Champion-Gate
+  (G6).
+label: official
+mode: selfplay
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+opponents:
+  mode: selfplay
+  snapshot_interval: 200000
+  pool_max: 50
+training:
+  seeds:
+  - 1
+  - 2
+  - 3
+  init_from: mcr_official_2p
+selfplay:
+  gate_block1:
+  - 0
+  - 400
+  gate_block2:
+  - 1000
+  - 1400
+  gate_margin_pp: 2.0

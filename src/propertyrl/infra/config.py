@@ -196,6 +196,8 @@ class OpponentSettings(_Strict):
 
 class TrainingSettings(_Strict):
     seeds: list[int] = Field(default_factory=lambda: [1, 2, 3])
+    #: Additional seeds for the final report (A0, A1, A2 with 5 seeds, §0.1).
+    extended_seeds: list[int] = Field(default_factory=list)
     ppo_overrides: dict[str, Any] = Field(default_factory=dict)
     init_from: str | None = None
     algorithm: Literal["smdp_ppo", "multiseat_ppo"] = "smdp_ppo"

@@ -1,0 +1,24 @@
+# Ablation N4: Kaufentscheidung an delegation_v1 delegiert.
+name: ablation_n4_buy_delegated
+description: 'Ablation N4: Kaufentscheidung an delegation_v1 delegiert.'
+label: official
+mode: single
+env:
+  ruleset: OFFICIAL_US_CLASSIC_2008
+  n_players: 2
+  reward_variant: A1
+  gamma: frozen
+  safety_horizon_rounds: frozen
+  delegated_kinds:
+  - TRADE_OFFER
+  - TRADE_RESPONSE
+  - AUCTION_BID
+  - DEBT
+  - MAIN_BUY
+opponents:
+  mode: curriculum
+training:
+  seeds:
+  - 1
+  - 2
+  - 3

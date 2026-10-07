@@ -1,0 +1,24 @@
+# Reduced sizes for --smoke (§7.10). Smoke runs only use SMOKE seeds and never touch the TEST ledger.
+training_seeds: 1
+mcr_timesteps: 20000
+other_timesteps: 4096
+n_envs: 2
+n_steps: 256
+batch_size: 256
+checkpoint_interval: 2048
+select_eval_interval: 4096
+select_eval_seeds: 10
+smoke_eval_seeds: 20
+roundrobin_seeds_per_block: 10
+horizon_games: 50
+sweep_timesteps: 4096
+selfplay_snapshots: 2
+selfplay_snapshot_interval: 2048
+champion_gate_seeds: 10
+kingmaking_games: 3
+kingmaking_points: 1
+kingmaking_actions: 2
+kingmaking_rollouts: 2
+curriculum_thresholds: [2048, 4096]
+select_mini_seeds: 10
+budget_hours: 1.0
