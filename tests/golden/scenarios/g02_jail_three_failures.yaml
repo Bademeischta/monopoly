@@ -1,0 +1,21 @@
+name: jail_three_failures
+rules: [R-106, R-107]
+description: Drei erfolglose Haftwürfe; beim dritten Kaution 50 und Bewegung um diesen Wurf.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  jail: {0: 0}
+  dice: [[1, 2], [2, 3], [1, 3], [2, 4], [2, 5]]
+  cards: {B: [B15]}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+  - do: END_PHASE
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+  - do: END_PHASE
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+expect:
+  position: {0: 17, 1: 11}
+  in_jail: {0: false}
+  jail_attempts: {0: 0}
+  cash: {0: 1460}
+  events: [JAIL_ROLL_FAILED, JAIL_FINE_PAID, JAIL_LEFT, CARD_DRAWN]

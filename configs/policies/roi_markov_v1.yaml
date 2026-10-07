@@ -1,0 +1,12 @@
+name: roi_markov_v1
+heuristic_version: h1.0
+description: Kauf nach Mietrendite (Markov-Landefrequenzen) mit fester Reserve; kein Handel.
+params:
+  reserve: 200
+  horizon_rounds: 10
+  roi_threshold: median
+  unmortgage_reserve_factor: 2.0
+  jail_stay_threshold: 50
+  auction_factor: 1.0
+  scarcity_factor: 1.0
+  trades: false

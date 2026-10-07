@@ -1,0 +1,20 @@
+# Deck B "Fonds" (squares 2, 17, 33). Independent neutral wording. V1: B12 amount is configurable.
+deck: B
+name: Fonds
+cards:
+  - {id: B01, effect: ADVANCE_TO, params: [0], text: "Rücke vor bis Start und erhalte das Gehalt."}
+  - {id: B02, effect: COLLECT, params: [200], text: "Ausschüttung aus dem Fonds: erhalte 200."}
+  - {id: B03, effect: PAY, params: [50], text: "Gebühr: zahle 50."}
+  - {id: B04, effect: COLLECT, params: [50], text: "Zinsertrag: erhalte 50."}
+  - {id: B05, effect: JAIL_FREE, params: [], text: "Freikarte: befreit einmal aus der Haft. Behalte sie bis zur Nutzung."}
+  - {id: B06, effect: SEND_TO_JAIL, params: [], text: "Gehe direkt in Haft, ohne Gehalt."}
+  - {id: B07, effect: COLLECT, params: [100], text: "Fondsauszahlung: erhalte 100."}
+  - {id: B08, effect: COLLECT, params: [20], text: "Rückerstattung: erhalte 20."}
+  - {id: B09, effect: COLLECT_EACH, params: [10], text: "Jeder aktive Mitspieler zahlt dir 10."}
+  - {id: B10, effect: COLLECT, params: [100], text: "Versicherungsleistung: erhalte 100."}
+  - {id: B11, effect: PAY, params: [100], text: "Abgabe: zahle 100."}
+  - {id: B12, effect: PAY, params: [50], text: "Beitrag: zahle 50."}
+  - {id: B13, effect: COLLECT, params: [25], text: "Honorar: erhalte 25."}
+  - {id: B14, effect: REPAIRS, params: [40, 115], text: "Sanierung: zahle 40 je Haus und 115 je Hotel."}
+  - {id: B15, effect: COLLECT, params: [10], text: "Preisgeld: erhalte 10."}
+  - {id: B16, effect: COLLECT, params: [100], text: "Bonuszahlung: erhalte 100."}

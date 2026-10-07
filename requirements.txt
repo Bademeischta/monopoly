@@ -1,0 +1,25 @@
+# Runtime dependency ranges (see requirements-lock.txt for the exact tested pins).
+numpy>=1.26,<3
+scipy>=1.11
+pandas>=2.1
+pyarrow>=14
+pydantic>=2.5
+PyYAML>=6
+gymnasium>=1.0,<2
+pettingzoo>=1.24
+stable-baselines3>=2.4,<2.10
+sb3-contrib>=2.4,<2.10
+torch>=2.2
+openskill>=6
+tensorboard>=2.14
+matplotlib>=3.8
+psutil>=5.9
+# Development
+pytest>=8
+pytest-cov>=4
+pytest-xdist
+hypothesis>=6.90
+ruff>=0.5
+mypy>=1.8
+pip-licenses>=4
+types-PyYAML

@@ -1,0 +1,31 @@
+name: house_shortage_empty_bank
+rules: [R-404, R-407, P-19]
+description: Leere Bank verhindert Bauen; ein verkauftes Haus wird per Knappheitsauktion vergeben.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  groups:
+    - {seat: 1, group: GRUEN, level: 4}
+    - {seat: 1, group: GELB, level: 4}
+    - {seat: 1, group: ROT, level: 2}
+    - {seat: 1, group: ORANGE, level: 0}
+    - {seat: 0, group: BRAUN, level: 0}
+  levels: {8: 1, 9: 1}
+  dice: [[1, 2], [1, 3]]
+steps:
+  - until: {seat: 0, kind: MAIN, phase: PRE_ROLL}
+  - illegal: [BUILD_b0, BUILD_b1]
+  - do: ROLL
+  - until: {seat: 1, kind: MAIN, phase: OUT_OF_TURN}
+  - do: SELL_BUILDING_b9
+  - do: END_PHASE
+  - until: {seat: 0, kind: MAIN, phase: OUT_OF_TURN}
+  - legal: [BUILD_b0]
+  - do: BUILD_b0
+  - do: pass
+  - do: pass
+expect:
+  level: {0: 1, 9: 0, 8: 1}
+  bank_houses: 0
+  cash: {0: 1450, 1: 1350}
+  events: [BUILDING_AUCTION_STARTED, BUILDING_AUCTION_WON, BUILDING_SOLD]

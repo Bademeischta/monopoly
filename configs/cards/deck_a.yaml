@@ -1,0 +1,21 @@
+# Deck A "Zufall" (squares 7, 22, 36). Effect types and parameters are game mechanics;
+# all texts are independent neutral wording. V4: A13 amount is configurable.
+deck: A
+name: Zufall
+cards:
+  - {id: A01, effect: ADVANCE_TO, params: [39], text: "Rücke vor bis Dunkelblau-2. Überquerst du Start, erhältst du das Gehalt."}
+  - {id: A02, effect: ADVANCE_TO, params: [0], text: "Rücke vor bis Start und erhalte das Gehalt."}
+  - {id: A03, effect: ADVANCE_TO, params: [24], text: "Rücke vor bis Rot-3. Überquerst du Start, erhältst du das Gehalt."}
+  - {id: A04, effect: ADVANCE_TO, params: [11], text: "Rücke vor bis Pink-1. Überquerst du Start, erhältst du das Gehalt."}
+  - {id: A05, effect: NEAREST_RAIL, params: [], text: "Rücke vor bis zur nächsten Bahn. Ist sie vergeben, zahle die doppelte Miete; sonst darfst du sie kaufen."}
+  - {id: A06, effect: NEAREST_RAIL, params: [], text: "Rücke vor bis zur nächsten Bahn. Ist sie vergeben, zahle die doppelte Miete; sonst darfst du sie kaufen."}
+  - {id: A07, effect: NEAREST_UTIL, params: [], text: "Rücke vor bis zum nächsten Werk. Ist es vergeben, würfle neu und zahle das Zehnfache; sonst darfst du es kaufen."}
+  - {id: A08, effect: COLLECT, params: [50], text: "Zinsgutschrift: erhalte 50."}
+  - {id: A09, effect: JAIL_FREE, params: [], text: "Freikarte: befreit einmal aus der Haft. Behalte sie bis zur Nutzung."}
+  - {id: A10, effect: MOVE_BACK, params: [3], text: "Gehe drei Felder zurück."}
+  - {id: A11, effect: SEND_TO_JAIL, params: [], text: "Gehe direkt in Haft, ohne Gehalt."}
+  - {id: A12, effect: REPAIRS, params: [25, 100], text: "Instandhaltung: zahle 25 je Haus und 100 je Hotel."}
+  - {id: A13, effect: PAY, params: [15], text: "Verwaltungsgebühr: zahle 15."}
+  - {id: A14, effect: ADVANCE_TO, params: [5], text: "Rücke vor bis Bahn-1. Überquerst du Start, erhältst du das Gehalt."}
+  - {id: A15, effect: PAY_EACH, params: [50], text: "Umlage: zahle jedem aktiven Mitspieler 50."}
+  - {id: A16, effect: COLLECT, params: [150], text: "Auszahlung einer Anlage: erhalte 150."}

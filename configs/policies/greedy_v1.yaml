@@ -1,0 +1,13 @@
+# Unseen evaluation policy (never a training opponent, A-32).
+name: greedy_v1
+heuristic_version: h1.0
+description: Kauft immer, baut wo immer möglich, belastet nie freiwillig, kein Handel.
+params:
+  buy: always_if_legal
+  build_order: smallest_id
+  unmortgage_when_affordable: true
+  jail: card_then_fine_then_roll
+  auction_factor_of_price: 1.0
+  scarcity: zero_premium_if_no_bid
+  debt_order: cheapest_buildings_then_smallest_mortgage
+  trades: false

@@ -1,0 +1,24 @@
+name: scarcity_official_foreign_placement
+rules: [P-19, R-407]
+description: Knappheitsauktion OFFICIAL; ein Fremdbieter gewinnt und setzt das Haus in seine eigene Gruppe.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  groups:
+    - {seat: 1, group: GRUEN, level: 4}
+    - {seat: 1, group: GELB, level: 4}
+    - {seat: 1, group: ORANGE, level: 0}
+    - {seat: 0, group: BRAUN, level: 0}
+    - {seat: 0, group: HELLBLAU, level: 0}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: PRE_ROLL}
+  - do: BUILD_b0
+  - do: pass
+  - do: {bid: 15}
+  - expect_pending: {seat: 1, kind: MAIN, phase: PLACE_BUILDING}
+  - do: BUILD_b8
+expect:
+  level: {0: 0, 8: 1}
+  bank_houses: 7
+  cash: {0: 1500, 1: 1385}
+  pending: {seat: 0, kind: MAIN, phase: PRE_ROLL}

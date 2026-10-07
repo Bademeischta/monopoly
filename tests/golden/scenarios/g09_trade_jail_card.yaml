@@ -1,0 +1,17 @@
+name: trade_with_jail_card
+rules: [R-801]
+description: Handel mit Freikarte und Geld gegen ein Werk.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  own: [{seat: 1, props: [7]}]
+  jail_cards: [{seat: 0, deck: B}]
+steps:
+  - do: {offer: [{recipient: 1, give_cash: 50, give_jail_cards: 2, get_props: [7]}]}
+  - do: accept
+expect:
+  jail_cards: {0: 0, 1: 2}
+  owner: {7: 0}
+  cash: {0: 1450, 1: 1550}
+  events: [TRADE_OFFERED, TRADE_ACCEPTED, TRADE_EXECUTED]
+  pending: {seat: 0, kind: MAIN, phase: PRE_ROLL}

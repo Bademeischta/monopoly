@@ -1,0 +1,16 @@
+name: repairs_with_hotels
+rules: [R-612]
+description: Instandhaltung mit Hotels und Häusern; ein Hotel zählt als Hotel.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  positions: {0: 3}
+  groups:
+    - {seat: 0, group: BRAUN, level: 5}
+    - {seat: 0, group: HELLBLAU, level: 3}
+  dice: [[1, 3]]
+  cards: {A: [A12]}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+expect:
+  cash: {0: 1075}

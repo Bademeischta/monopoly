@@ -1,0 +1,16 @@
+name: nearest_rail_over_start
+rules: [R-603, R-102, P-11]
+description: Nächste Bahn über Start mit Gehalt und doppelter Miete.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  positions: {0: 31}
+  own: [{seat: 1, props: [2, 10]}]
+  dice: [[2, 3]]
+  cards: {A: [A05]}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+expect:
+  position: {0: 5}
+  cash: {0: 1600, 1: 1600}
+  events: [SALARY, CARD_EFFECT, RENT_PAID]

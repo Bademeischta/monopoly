@@ -1,0 +1,19 @@
+name: jail_card_to_creditor
+rules: [R-702, R-607]
+description: Bankrott gegenüber einem Spieler; die Freikarte geht an den Gläubiger.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 3
+setup:
+  positions: {0: 6}
+  cash: {0: 5}
+  own: [{seat: 1, props: [6]}]
+  jail_cards: [{seat: 0, deck: A}]
+  dice: [[2, 3]]
+steps:
+  - until: {seat: 1, kind: MAIN, phase: OUT_OF_TURN}
+expect:
+  bankrupt: {0: true}
+  jail_cards: {0: 0, 1: 1}
+  cash: {0: 0, 1: 1505}
+  deck_sizes: [15, 16]
+  events: [BANKRUPTCY, ASSETS_TRANSFERRED]

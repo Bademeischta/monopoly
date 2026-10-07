@@ -1,0 +1,27 @@
+# TEST_MOVEMENT_ONLY: reduced configuration for the Markov comparison (§3.9, §4.11, A-11).
+# No purchases, rent, taxes or card effects; practically unlimited cash; jail fine always paid immediately.
+ruleset_id: TEST_MOVEMENT_ONLY
+version: "1.0"
+source: "Testkonfiguration, Details in docs/RULESPEC.md"
+edition: TEST
+player_count: [2, 2]
+rule_ids: [R-101, R-102, R-103, R-104, R-105, R-110]
+protocol_ids: [P-15, P-16]
+deviation_ids: []
+known_deviations: []
+house_rules: []
+decision_protocol: own_turn_only
+auction_protocol: ascending_open
+trade_protocol: none
+scarcity_auction: false
+game_end: natural
+safety_horizon_rounds: 1000000000
+max_rounds: 0
+movement_only: true
+starting_cash: 1000000000
+salary: 200
+jail_fine: 50
+mortgage_interest_percent: 10
+bank_houses: 32
+bank_hotels: 12
+verification_points: {}

@@ -1,0 +1,22 @@
+name: bankruptcy_to_player
+rules: [R-702, R-503, P-06]
+description: Schuldenphase mit Belastung, danach Bankrott gegenüber dem Gläubiger mit Zins auf geerbte Hypotheken.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 3
+setup:
+  positions: {0: 26}
+  cash: {0: 0}
+  own:
+    - {seat: 0, props: [0, 1], mortgaged: true}
+    - {seat: 0, props: [2]}
+  groups:
+    - {seat: 1, group: GRUEN, level: 2}
+  dice: [[2, 3]]
+steps:
+  - until: {seat: 1, kind: MAIN, phase: OUT_OF_TURN}
+expect:
+  bankrupt: {0: true}
+  owner: {0: 1, 1: 1, 2: 1}
+  mortgaged: {0: true, 1: true, 2: true}
+  cash: {0: 0, 1: 1584}
+  events: [DEBT_STARTED, PROPERTY_MORTGAGED, BANKRUPTCY, ASSETS_TRANSFERRED, INTEREST_PAID]

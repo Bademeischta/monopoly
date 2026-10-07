@@ -1,0 +1,18 @@
+name: strong_a_v1
+heuristic_version: h1.0
+description: Wie roi_markov_v1 mit dynamischer Reserve, Blockier-Käufen, Stufe-3-Bauziel und Handel.
+params:
+  reserve_min: 150
+  horizon_rounds: 10
+  roi_threshold: median
+  buy_to_block: true
+  build_target_level: 3
+  hotel_extra_reserve: 300
+  unmortgage_reserve_factor: 2.0
+  jail_stay_threshold: 50
+  offer_factor: 1.15
+  accept_ratio: 1.15
+  max_offers: 2
+  auction_factor: 1.1
+  scarcity_factor: 1.1
+  trades: true

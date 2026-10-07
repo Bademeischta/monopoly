@@ -1,0 +1,16 @@
+name: third_double
+rules: [R-104, R-103]
+description: Drei Pasche in Folge; nach dem dritten Pasch sofort in Haft ohne Bewegung.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  positions: {0: 4}
+  dice: [[1, 1], [1, 1], [2, 2]]
+steps:
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+expect:
+  position: {0: 10}
+  in_jail: {0: true}
+  cash: {0: 1500}
+  owner: {3: -1, 4: -1}
+  events: [JAIL_ENTERED, AUCTION_NO_SALE]

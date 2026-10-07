@@ -1,0 +1,21 @@
+name: scarcity_research_sealed
+rules: [D-05, P-19]
+description: Knappheitsauktion RESEARCH verdeckt; Zuschlag zum zweithöchsten Gebot plus 1.
+ruleset: RESEARCH_2P_BOUNDED_V1
+players: 2
+setup:
+  groups:
+    - {seat: 1, group: GRUEN, level: 4}
+    - {seat: 1, group: GELB, level: 4}
+    - {seat: 1, group: ORANGE, level: 0}
+    - {seat: 0, group: BRAUN, level: 0}
+    - {seat: 0, group: HELLBLAU, level: 0}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: PRE_ROLL}
+  - do: BUILD_b0
+  - do: {level: 4}
+  - do: {level: 3}
+expect:
+  level: {0: 1}
+  cash: {0: 1424, 1: 1500}
+  pending: {seat: 0, kind: MAIN, phase: PRE_ROLL}

@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "propertyrl"
+version = "0.1.0"
+description = "Rule-faithful property trading game simulator with RL environments, baselines and evaluation pipeline"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11,<3.14"
+authors = [{ name = "PropertyRL contributors" }]
+dependencies = [
+    "numpy>=1.26,<3",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    "pyarrow>=14",
+    "pydantic>=2.5",
+    "PyYAML>=6",
+    "gymnasium>=1.0,<2",
+    "pettingzoo>=1.24",
+    "stable-baselines3>=2.4,<2.10",
+    "sb3-contrib>=2.4,<2.10",
+    "torch>=2.2",
+    "openskill>=6",
+    "tensorboard>=2.14",
+    "matplotlib>=3.8",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=4",
+    "pytest-xdist",
+    "hypothesis>=6.90",
+    "ruff>=0.5",
+    "mypy>=1.8",
+    "pip-licenses>=4",
+    "types-PyYAML",
+]
+wandb = ["wandb"]
+mutmut = ["mutmut; sys_platform != 'win32'"]
+
+[project.scripts]
+propertyrl = "propertyrl.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+propertyrl = ["py.typed"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "artifacts", "runs", "reports"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003", "SIM102", "SIM108", "SIM110", "B905", "RUF012", "RUF059", "RUF007"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "SIM117"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = false
+ignore_missing_imports = true
+files = ["src/propertyrl/engine", "src/propertyrl/env"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "rule(id): links a test to a rule/protocol/deviation id from docs/RULESPEC.md",
+    "slow: long running test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:tensorboard.*",
+    "ignore::DeprecationWarning:google.*",
+    "ignore:.*pkg_resources.*:DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["propertyrl"]
+branch = true
+parallel = true
+concurrency = ["multiprocessing", "thread"]
+sigterm = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+    "\\.\\.\\.$",
+]

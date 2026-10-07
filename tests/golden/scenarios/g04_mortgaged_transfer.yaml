@@ -1,0 +1,19 @@
+name: mortgaged_transfer_interest_and_principal_option
+rules: [R-503, P-13, R-802]
+description: Belastetes Recht im Handel; Empfänger zahlt sofort 10 % und löst im nächsten eigenen Fenster nur zum Kapital ab.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  own: [{seat: 0, props: [26], mortgaged: true}]
+  dice: [[1, 2]]
+steps:
+  - do: {offer: [{recipient: 1, get_cash: 100, give_props: [26]}]}
+  - do: accept
+  - until: {seat: 1, kind: MAIN, phase: OUT_OF_TURN}
+  - legal: [UNMORTGAGE_p26]
+  - do: UNMORTGAGE_p26
+expect:
+  cash: {0: 1600, 1: 1207}
+  owner: {26: 1}
+  mortgaged: {26: false}
+  events: [INTEREST_PAID, TRADE_EXECUTED, PROPERTY_UNMORTGAGED]

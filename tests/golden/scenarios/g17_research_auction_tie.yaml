@@ -1,0 +1,15 @@
+name: research_auction_tie
+rules: [D-02]
+description: Verdeckte Auktion mit Gleichstand; Sitzreihenfolge ab dem Ablehnenden entscheidet.
+ruleset: RESEARCH_2P_BOUNDED_V1
+players: 2
+setup:
+  dice: [[1, 2]]
+steps:
+  - until: {seat: 0, kind: MAIN, phase: BUY}
+  - do: DECLINE
+  - do: {level: 4}
+  - do: {level: 4}
+expect:
+  owner: {1: 0}
+  cash: {0: 1440, 1: 1500}

@@ -1,0 +1,45 @@
+# Neutral board definition (RULESPEC §3.2). Index | kind | neutral name | group | price |
+# rents (unbuilt/1/2/3/4 houses/hotel; rails by count; utilities: dice multipliers) | house price | mortgage value.
+# V2/V3: tax amounts are configuration values (see docs/RULESPEC.md, V-Punkte).
+board_id: board_us_neutral
+squares:
+  - {index: 0, kind: START, name: Start}
+  - {index: 1, kind: STREET, name: Braun-1, group: BRAUN, price: 60, rents: [2, 10, 30, 90, 160, 250], house_price: 50, mortgage_value: 30}
+  - {index: 2, kind: CARD_B, name: Fonds}
+  - {index: 3, kind: STREET, name: Braun-2, group: BRAUN, price: 60, rents: [4, 20, 60, 180, 320, 450], house_price: 50, mortgage_value: 30}
+  - {index: 4, kind: TAX, name: Steuer-1, tax: 200}
+  - {index: 5, kind: RAIL, name: Bahn-1, group: BAHN, price: 200, rents: [25, 50, 100, 200], mortgage_value: 100}
+  - {index: 6, kind: STREET, name: Hellblau-1, group: HELLBLAU, price: 100, rents: [6, 30, 90, 270, 400, 550], house_price: 50, mortgage_value: 50}
+  - {index: 7, kind: CARD_A, name: Zufall}
+  - {index: 8, kind: STREET, name: Hellblau-2, group: HELLBLAU, price: 100, rents: [6, 30, 90, 270, 400, 550], house_price: 50, mortgage_value: 50}
+  - {index: 9, kind: STREET, name: Hellblau-3, group: HELLBLAU, price: 120, rents: [8, 40, 100, 300, 450, 600], house_price: 50, mortgage_value: 60}
+  - {index: 10, kind: JAIL, name: "Haft (zu Besuch)"}
+  - {index: 11, kind: STREET, name: Pink-1, group: PINK, price: 140, rents: [10, 50, 150, 450, 625, 750], house_price: 100, mortgage_value: 70}
+  - {index: 12, kind: UTIL, name: Werk-1, group: WERK, price: 150, rents: [4, 10], mortgage_value: 75}
+  - {index: 13, kind: STREET, name: Pink-2, group: PINK, price: 140, rents: [10, 50, 150, 450, 625, 750], house_price: 100, mortgage_value: 70}
+  - {index: 14, kind: STREET, name: Pink-3, group: PINK, price: 160, rents: [12, 60, 180, 500, 700, 900], house_price: 100, mortgage_value: 80}
+  - {index: 15, kind: RAIL, name: Bahn-2, group: BAHN, price: 200, rents: [25, 50, 100, 200], mortgage_value: 100}
+  - {index: 16, kind: STREET, name: Orange-1, group: ORANGE, price: 180, rents: [14, 70, 200, 550, 750, 950], house_price: 100, mortgage_value: 90}
+  - {index: 17, kind: CARD_B, name: Fonds}
+  - {index: 18, kind: STREET, name: Orange-2, group: ORANGE, price: 180, rents: [14, 70, 200, 550, 750, 950], house_price: 100, mortgage_value: 90}
+  - {index: 19, kind: STREET, name: Orange-3, group: ORANGE, price: 200, rents: [16, 80, 220, 600, 800, 1000], house_price: 100, mortgage_value: 100}
+  - {index: 20, kind: REST, name: Ruhefeld}
+  - {index: 21, kind: STREET, name: Rot-1, group: ROT, price: 220, rents: [18, 90, 250, 700, 875, 1050], house_price: 150, mortgage_value: 110}
+  - {index: 22, kind: CARD_A, name: Zufall}
+  - {index: 23, kind: STREET, name: Rot-2, group: ROT, price: 220, rents: [18, 90, 250, 700, 875, 1050], house_price: 150, mortgage_value: 110}
+  - {index: 24, kind: STREET, name: Rot-3, group: ROT, price: 240, rents: [20, 100, 300, 750, 925, 1100], house_price: 150, mortgage_value: 120}
+  - {index: 25, kind: RAIL, name: Bahn-3, group: BAHN, price: 200, rents: [25, 50, 100, 200], mortgage_value: 100}
+  - {index: 26, kind: STREET, name: Gelb-1, group: GELB, price: 260, rents: [22, 110, 330, 800, 975, 1150], house_price: 150, mortgage_value: 130}
+  - {index: 27, kind: STREET, name: Gelb-2, group: GELB, price: 260, rents: [22, 110, 330, 800, 975, 1150], house_price: 150, mortgage_value: 130}
+  - {index: 28, kind: UTIL, name: Werk-2, group: WERK, price: 150, rents: [4, 10], mortgage_value: 75}
+  - {index: 29, kind: STREET, name: Gelb-3, group: GELB, price: 280, rents: [24, 120, 360, 850, 1025, 1200], house_price: 150, mortgage_value: 140}
+  - {index: 30, kind: ARREST, name: Arrest}
+  - {index: 31, kind: STREET, name: Grün-1, group: GRUEN, price: 300, rents: [26, 130, 390, 900, 1100, 1275], house_price: 200, mortgage_value: 150}
+  - {index: 32, kind: STREET, name: Grün-2, group: GRUEN, price: 300, rents: [26, 130, 390, 900, 1100, 1275], house_price: 200, mortgage_value: 150}
+  - {index: 33, kind: CARD_B, name: Fonds}
+  - {index: 34, kind: STREET, name: Grün-3, group: GRUEN, price: 320, rents: [28, 150, 450, 1000, 1200, 1400], house_price: 200, mortgage_value: 160}
+  - {index: 35, kind: RAIL, name: Bahn-4, group: BAHN, price: 200, rents: [25, 50, 100, 200], mortgage_value: 100}
+  - {index: 36, kind: CARD_A, name: Zufall}
+  - {index: 37, kind: STREET, name: Dunkelblau-1, group: DUNKELBLAU, price: 350, rents: [35, 175, 500, 1100, 1300, 1500], house_price: 200, mortgage_value: 175}
+  - {index: 38, kind: TAX, name: Steuer-2, tax: 100}
+  - {index: 39, kind: STREET, name: Dunkelblau-2, group: DUNKELBLAU, price: 400, rents: [50, 200, 600, 1400, 1700, 2000], house_price: 200, mortgage_value: 200}

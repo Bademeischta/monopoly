@@ -1,0 +1,20 @@
+name: official_auction_three_bidders
+rules: [P-03, R-202]
+description: Offene aufsteigende Auktion mit drei Bietern.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 3
+setup:
+  dice: [[1, 2]]
+steps:
+  - until: {seat: 0, kind: MAIN, phase: BUY}
+  - do: DECLINE
+  - do: {bid: 10}
+  - do: {bid: 20}
+  - do: {bid: 30}
+  - do: pass
+  - do: {bid: 40}
+  - do: pass
+expect:
+  owner: {1: 1}
+  cash: {0: 1500, 1: 1460, 2: 1500}
+  events: [AUCTION_WON]

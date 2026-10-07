@@ -1,0 +1,20 @@
+name: hotel_selldown_p08
+rules: [P-08, R-406]
+description: Hotelverkauf ohne 4 Häuser in der Bank verkauft die Gruppe atomar auf die höchste gleichmäßige Stufe.
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  groups:
+    - {seat: 1, group: GRUEN, level: 4}
+    - {seat: 1, group: GELB, level: 4}
+    - {seat: 1, group: ROT, level: 2}
+    - {seat: 0, group: BRAUN, level: 5}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: PRE_ROLL}
+  - do: SELL_BUILDING_b0
+expect:
+  level: {0: 1, 1: 1}
+  bank_houses: 0
+  bank_hotels: 12
+  cash: {0: 1700}
+  events: [GROUP_SOLD_DOWN]

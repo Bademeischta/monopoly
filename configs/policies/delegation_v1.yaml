@@ -1,0 +1,14 @@
+# Technical policy for delegated decision kinds of learning seats (risk averse, §5.3).
+name: delegation_v1
+heuristic_version: h1.0
+description: Risikoaverse Delegation für Handel, Auktionen, Schulden (und Kauf in Ablation N4).
+params:
+  reserve_min: 150
+  horizon_rounds: 10
+  offer_factor: 1.30
+  accept_ratio: 1.30
+  accept_ratio_completing: 1.0
+  max_offers: 1
+  auction_step_fraction: 0.05
+  scarcity_divisor: 1.30
+  trades: true

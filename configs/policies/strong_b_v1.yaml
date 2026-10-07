@@ -1,0 +1,14 @@
+name: strong_b_v1
+heuristic_version: h1.0
+description: Aggressiv - kauft immer, baut maximal (Hotels bevorzugt), kleine Reserve, verlässt die Haft sofort.
+params:
+  reserve: 50
+  horizon_rounds: 10
+  unmortgage_min_cash: 300
+  jail: leave_immediately
+  offer_factor: 1.0
+  accept_ratio: 1.0
+  max_offers: 2
+  auction_factor: 1.25
+  scarcity_factor: 1.25
+  trades: true

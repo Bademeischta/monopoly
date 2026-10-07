@@ -1,0 +1,14 @@
+name: shortgame_draw
+rules: [D-06]
+description: Kurzspiel endet nach max_rounds; gleiche Equity ergibt Remis.
+ruleset: RESEARCH_2P_SHORTGAME_V1
+players: 2
+setup:
+  overrides: {max_rounds: 1}
+  dice: [[2, 3], [2, 3]]
+steps:
+  - run_to_end: true
+expect:
+  game_over: true
+  winner: null
+  placements: [1, 1]

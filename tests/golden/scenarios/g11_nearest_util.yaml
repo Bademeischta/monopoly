@@ -1,0 +1,15 @@
+name: nearest_util_special_roll
+rules: [R-604]
+description: Nächstes Werk; besessen -> Sonderwurf mal 10 (ein Pasch im Sonderwurf löst keinen weiteren Wurf aus).
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  positions: {0: 17}
+  own: [{seat: 1, props: [20]}]
+  dice: [[2, 3], [6, 6]]
+  cards: {A: [A07]}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+expect:
+  position: {0: 28}
+  cash: {0: 1380, 1: 1620}

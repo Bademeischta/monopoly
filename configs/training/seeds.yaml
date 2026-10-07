@@ -1,0 +1,14 @@
+# Seed pools (§8.1). Seeds = u64(master, EVAL, pool_id, i) restricted to 63 bits (A-112).
+master_seed: 20261007
+pools:
+  SELECT: {pool_id: 1, size: 2000}
+  TEST: {pool_id: 2, size: 10000}
+  SMOKE: {pool_id: 3, size: 50}
+# Fixed index ranges [start, end) within the pools.
+subsets:
+  select_mini: [0, 100]
+  checkpoint_eval: [0, 200]
+  champion_block1: [0, 400]
+  champion_block2: [1000, 1400]
+  select_block1: [0, 1000]
+  select_block2: [1000, 2000]

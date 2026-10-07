@@ -1,0 +1,8 @@
+# Uniformly random legal play; also the fuzzing agent (§5.4).
+name: random_legal
+heuristic_version: h1.0
+description: Gleichverteilt über legale Aktionen; keine Angebote; Annahme mit 0,5; zufällige Gebote.
+params:
+  accept_probability: 0.5
+  pass_probability: 0.5
+  trades: false

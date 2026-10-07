@@ -1,0 +1,16 @@
+name: move_back_deck_b
+rules: [R-605, R-612]
+description: Drei zurück von Feld 36 auf Feld 33 zieht Deck B (Sanierung).
+ruleset: OFFICIAL_US_CLASSIC_2008
+players: 2
+setup:
+  positions: {0: 31}
+  groups: [{seat: 0, group: BRAUN, level: 2}]
+  dice: [[2, 3]]
+  cards: {A: [A10], B: [B14]}
+steps:
+  - until: {seat: 0, kind: MAIN, phase: POST_MOVE}
+expect:
+  position: {0: 33}
+  cash: {0: 1340}
+  no_events: [SALARY]

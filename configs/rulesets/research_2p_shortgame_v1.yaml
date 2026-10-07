@@ -1,0 +1,32 @@
+# RESEARCH_2P_SHORTGAME_V1: RESEARCH_2P_BOUNDED_V1 plus D-06 (short game, terminal after max_rounds).
+ruleset_id: RESEARCH_2P_SHORTGAME_V1
+version: "1.0"
+source: "US Classic 2008, Details in docs/LEGAL.md"
+edition: US_CLASSIC_2008
+rule_ids: [R-001, R-002, R-003, R-101, R-102, R-103, R-104, R-105, R-106, R-107, R-108, R-109, R-110, R-201, R-202, R-203, R-301, R-302, R-303, R-304, R-305, R-306, R-307, R-308, R-309, R-310, R-401, R-402, R-403, R-404, R-405, R-406, R-407, R-501, R-502, R-503, R-601, R-602, R-603, R-604, R-605, R-606, R-607, R-608, R-609, R-610, R-611, R-612, R-701, R-702, R-703, R-704, R-705, R-801, R-802, R-901, R-902]
+protocol_ids: [P-01, P-02, P-03, P-04, P-05, P-06, P-07, P-08, P-09, P-10, P-11, P-12, P-13, P-14, P-15, P-16, P-17, P-18, P-19]
+house_rules: [H-01, H-02, H-03, H-04, H-05, H-06, H-07, H-08, H-09]
+starting_cash: 1500
+salary: 200
+jail_fine: 50
+mortgage_interest_percent: 10
+bank_houses: 32
+bank_hotels: 12
+player_count: [2, 2]
+deviation_ids: [D-01, D-02, D-03, D-04, D-05, D-06]
+known_deviations: [K-01, K-02, K-03, K-04]
+decision_protocol: own_turn_only
+auction_protocol: sealed_7_levels
+trade_protocol: active_player_only
+scarcity_auction: true
+game_end: short_game
+safety_horizon_rounds: 300
+# Calibrated horizon (§8.10); overridden from artifacts/frozen/horizon.json when present.
+max_rounds: 300
+verification_points:
+  V1: {item: "Fonds-Karte B12 (PAY)", value: 50, older_editions: 150, config: "configs/cards/deck_b.yaml"}
+  V2: {item: "Steuer-2", value: 100, older_editions: 75, config: "configs/board/board_us_neutral.yaml"}
+  V3: {item: "Steuer-1", value: "200 fest", older_editions: "200 oder 10 %", config: "configs/board/board_us_neutral.yaml"}
+  V4: {item: "Zufall-Karte A13 (PAY)", value: 15, config: "configs/cards/deck_a.yaml"}
+  V5: {item: "Karten je Deck", value: 16, config: "configs/cards/"}
+  V6: {item: "Spielerzahl Engine", value: "2-8", config: "player_count"}
