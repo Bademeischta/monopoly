@@ -344,48 +344,53 @@ Berichte und meldet unverändert G0–G2 PASS (G1/G2 in Gate-Größe) und G3–G
 
 ## 13. Befehle für die vollen Gate-Läufe (Nutzer)
 
+Die vollständige, gegen den Code geprüfte Schritt-für-Schritt-Anleitung (inklusive Windows-Varianten,
+Stopp-Regeln, Fallbacks, Wiederaufnahme nach Abbrüchen und Laufzeiten) steht in `docs/TRAINING_GUIDE.md`.
+Kurzfassung für Linux/macOS/WSL2, strikt in dieser Reihenfolge, lange Schritte in `tmux`:
+
 ```bash
-# G0 – nach Prüfung von V1–V6 in docs/RULESPEC.md
-propertyrl gates --confirm-v-points
-
-# G1 – Gate-Größen (in diesem Build bereits ausgeführt, zur Wiederholung)
-pytest -n auto --cov=propertyrl --cov-branch --cov-report=xml:artifacts/test-reports/coverage.xml \
-       --junitxml=artifacts/test-reports/junit.xml
-propertyrl fuzz --total-decisions 10000000 --rare-events --rare-decisions 1000000     # ~7 min
-propertyrl markov-check --moves 10000000 --tolerance-pp 0.05                          # ~4 min
-
-# G2 – Gate-Größe des Maskentests und Benchmark
+propertyrl gates --confirm-v-points                                       # G0 nach Prüfung von V1–V6
+pytest -n auto -m "not slow" --cov=propertyrl --cov-branch \
+       --cov-report=xml:artifacts/test-reports/coverage.xml --junitxml=artifacts/test-reports/junit.xml
+propertyrl fuzz --total-decisions 10000000 --rare-events --rare-decisions 1000000
+propertyrl markov-check --moves 10000000 --tolerance-pp 0.05
 PROPERTYRL_MASK_STEPS=1000000 pytest tests/env/test_masks_leak.py --junitxml=artifacts/test-reports/junit_env.xml
-propertyrl benchmark
-
-# G3 (~15-60 min)
-propertyrl round-robin
-propertyrl calibrate-horizon
-propertyrl power --freeze 2p=1200,4p=250
-
-# G4 (Sweep ~3 × 0,5 h, MCR-Lauf ~2,7 h bei 4 Kernen)
+propertyrl benchmark && propertyrl plan --experiments all && propertyrl gates   # G1/G2
+propertyrl round-robin && propertyrl calibrate-horizon && propertyrl power --freeze 2p=1200,4p=250   # G3
 propertyrl sweep-gamma
 propertyrl train --experiment mcr_official_2p --seed 1
-propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p --opponents random_legal,roi_markov_v1
-
-# G5 (MCR) und P1 (Ablationen)
-propertyrl pipeline --experiment mcr_official_2p
+propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p
+propertyrl gates --gate G4                                                 # nur bei PASS weiter
+propertyrl pipeline --experiment mcr_official_2p && propertyrl gates --gate G5
 for e in ablation_a0_terminal ablation_a2_purdue ablation_n4_buy_delegated ablation_no_trade \
          ablation_shared_delegation ablation_no_smdp research_shortgame_2p; do
   propertyrl pipeline --experiment $e
 done
-for e in ablation_a0_terminal mcr_official_2p ablation_a2_purdue; do      # Seeds 4 und 5 für A0, A1, A2
-  propertyrl train --experiment $e --extended
-done
-
-# G6, G7
-propertyrl pipeline --experiment selfplay_official_2p
-propertyrl pipeline --experiment fourp_official          # Fallback: fourp_single_seat_fallback
+propertyrl pipeline --experiment selfplay_official_2p && propertyrl gates --gate G6
+propertyrl pipeline --experiment fourp_official && propertyrl gates --gate G7
 propertyrl pipeline --experiment ablation_a3_kingmaking_4p
-
-# G8
+propertyrl repro --run "$(ls -d runs/mcr_official_2p_s1_* | sort | tail -1)"
 propertyrl report --experiment mcr_official_2p
-propertyrl repro --run runs/<mcr_run_id>
-propertyrl license-check
-propertyrl gates
+propertyrl license-check && propertyrl gates                               # G8
 ```
+
+## 14. Nachträge nach der Übergabe
+
+Eine Prüfung der Nutzer-Anleitung gegen den Code (fünf unabhängige Reviews) ergab folgende Korrekturen,
+die nach dem Abschlusslauf eingearbeitet wurden:
+
+1. **Windows-CI:** Beide Windows-Jobs scheiterten an `ruff format --check`, weil Git unter Windows mit CRLF
+   auscheckt. Neu: `.gitattributes` (`* text=auto eol=lf`). Linux-Jobs waren grün.
+2. **G3** misst die Truncation-Bedingung an der 2P-Kalibrierung (§8.10); 4P wird separat berichtet (A-135).
+   Im Smoke-Lauf endeten 8 von 24 4P-Spielen nicht innerhalb von 5.000 Runden – ein Befund für G7.
+3. **`propertyrl pipeline` ist wiederholbar** (A-136): gleiche Konfiguration → Lauf wiederverwenden,
+   unterbrochener Lauf → fortsetzen, vorhandene Auswertung → nicht wiederholen. Dadurch übernimmt die
+   G5-Pipeline den Seed-1-Lauf aus G4 (spart ~3,4 h).
+4. **Z3** zählt nur die konfigurierten Trainingsseeds (A-137); Checkpoint-Suche ignoriert γ-Piloten und
+   unfertige Läufe.
+5. **`evaluate --experiment`** übernimmt Gegner, Ruleset und Spielerzahl des Experiments; doppelte Gegner
+   werden entfernt; die Ausgabe nennt den verwendeten Checkpoint (A-138).
+6. **Kleinere Korrekturen:** Smoke-Round-Robin überschreibt nicht mehr `roundrobin/latest.json`; G8 liest
+   die neueste Repro-Datei; `--smoke-all` prüft „Ledger unverändert“ statt „Ledger leer“; `round-robin
+   --policies` für den G3-Fallback; UTF-8-Ausgabe der CLI unter Windows; README-Installation (Anführungszeichen
+   bei `".[dev]"`, `python -m pip`, Python-3.12-Auswahl, PowerShell-Varianten).

@@ -176,3 +176,23 @@ def test_report_contains_criteria_and_holm(fresh_home: Path) -> None:
     assert "(ungesehene Policy)" in text
     assert "## Gate-Status G0–G8" in text
     assert "SMOKE" not in text.split("## Gate-Status")[0]
+
+
+def test_z3_counts_configured_seeds_only(fresh_home: Path) -> None:
+    """Extra seeds (--extended) and repeated runs of a seed do not change Z3 (A-137)."""
+    import json as _json
+
+    agents = {}
+    for name, seed in (("r1", 1), ("r2", 2), ("r3", 3), ("r4", 4), ("r1b", 1)):
+        run = fresh_home / "runs" / f"mcr_official_2p_{name}"
+        run.mkdir(parents=True)
+        (run / "run.json").write_text(_json.dumps({"training_seed": seed}), encoding="utf-8")
+        agents[name] = f"sb3:{run / 'best_select.zip'}"
+    for name, share in (("r1", 0.40), ("r2", 0.62), ("r3", 0.62), ("r4", 0.30), ("r1b", 0.62)):
+        _store(fresh_home, name, "mcr_official_2p", "test", agents[name],
+               {"strong_a_v1": _duel(agents[name], "strong_a_v1", 200, share)})  # fmt: skip
+    res = z3()
+    assert len(res["agents"]) == 3  # seeds 1, 2, 3; seed 1 = newest run r1b
+    assert agents["r4"] in res["excluded_extra_seeds"]
+    assert {a["agent"] for a in res["agents"]} == {agents["r1b"], agents["r2"], agents["r3"]}
+    assert res["passed"]

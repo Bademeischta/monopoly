@@ -27,30 +27,36 @@ Enthalten sind:
 
 ## Installation
 
-Voraussetzung: Python 3.11, 3.12 oder 3.13. PyTorch wird als CPU-Version installiert (MLP-Policies laufen
-auf der CPU; eine GPU ist nicht nötig).
+Voraussetzung: Python 3.11, 3.12 oder 3.13 (prüfen mit `python3.12 --version`). PyTorch wird als CPU-Version
+installiert (MLP-Policies laufen auf der CPU; eine GPU ist nicht nötig). Empfohlen sind Linux oder WSL2
+(Ubuntu) unter Windows; natives Windows wird in der CI mitgetestet.
 
 ### Linux und macOS
 
 ```bash
-git clone <repository-url> propertyrl && cd propertyrl
-python3 -m venv .venv
+git clone https://github.com/Bademeischta/monopoly propertyrl && cd propertyrl
+python3.12 -m venv .venv            # Ubuntu: sudo apt install python3.12-venv; macOS: brew install python@3.12
 source .venv/bin/activate
-pip install --upgrade pip
+python -m pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # macOS: pip install torch genügt
-pip install -e .[dev]
+pip install -e ".[dev]"             # Anführungszeichen nötig (zsh)
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-git clone <repository-url> propertyrl; cd propertyrl
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned      # einmalig, erlaubt Activate.ps1
+git clone https://github.com/Bademeischta/monopoly propertyrl; cd propertyrl
 py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e .[dev]
+pip install -e ".[dev]"
+$env:PYTHONUTF8 = "1"                                    # UTF-8-Ausgabe (auch dauerhaft setzbar)
 ```
+
+Umgebungsvariablen werden in PowerShell mit `$env:NAME = "wert"` gesetzt (statt `NAME=wert befehl`) und mit
+`Remove-Item Env:NAME` wieder entfernt.
 
 Exakt reproduzierbare Umgebung: `pip install -r requirements-lock.txt` (unter Linux x86_64 mit Python 3.12
 aufgelöst; torch aus PyPI, dessen CUDA-Laufzeitpakete nur unter Linux installiert werden) und danach
@@ -62,10 +68,13 @@ aufgelöst; torch aus PyPI, dessen CUDA-Laufzeitpakete nur unter Linux installie
 ```bash
 propertyrl play --seed 1                          # Textspiel strong_a_v1 gegen strong_b_v1, Log in artifacts/logs/
 propertyrl replay --log artifacts/logs/play_OFFICIAL_US_CLASSIC_2008_2p_seed1.jsonl   # Hash-Prüfung
-propertyrl pipeline --smoke-all                   # gesamte Kette im Kleinformat (SMOKE – keine Aussagekraft)
+PROPERTYRL_HOME=$HOME/prl_smoke propertyrl pipeline --smoke-all   # Kleinformat, getrennt von echten Ergebnissen
 propertyrl gates                                  # Gate-Status G0–G8
-pytest -n auto                                    # Testsuite
+pytest -n auto -m "not slow"                      # Testsuite ohne die 30-min-Smoke-Pipeline
 ```
+
+Die vollständige, geprüfte Schritt-für-Schritt-Anleitung bis zum Abschlussbericht steht in
+`docs/TRAINING_GUIDE.md`.
 
 Als Bibliothek:
 
@@ -92,12 +101,12 @@ print("Sieger:", engine.result().winner)
 | G1 | `pytest -n auto --cov=propertyrl --cov-branch`, `propertyrl fuzz --total-decisions 10000000 --rare-events`, `propertyrl markov-check --moves 10000000 --tolerance-pp 0.05` | Engine verifiziert |
 | G2 | `PROPERTYRL_MASK_STEPS=1000000 pytest tests/env/test_masks_leak.py --junitxml=artifacts/test-reports/junit_env.xml`, `propertyrl benchmark` | Environments, Durchsatz |
 | G3 | `propertyrl round-robin`, `propertyrl calibrate-horizon`, `propertyrl power --freeze 2p=1200,4p=250` | stärkste Baseline, Horizont, TEST-Größe |
-| G4 | `propertyrl sweep-gamma`, `propertyrl train --experiment mcr_official_2p --seed 1` | γ eingefroren, erster Agent |
+| G4 | `propertyrl sweep-gamma`, `propertyrl train --experiment mcr_official_2p --seed 1`, `propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p` | γ eingefroren, erster Agent |
 | G5 | `propertyrl pipeline --experiment mcr_official_2p` | MCR (Z3) auf TEST |
 | P1 | `propertyrl pipeline --experiment <ablation>` für alle Ablationen | Reward- und Aktionsraum-Studie |
 | G6 | `propertyrl pipeline --experiment selfplay_official_2p` | Self-Play (Z4) |
 | G7 | `propertyrl pipeline --experiment fourp_official` (Fallback `fourp_single_seat_fallback`) | 4P (Z5, Stretch) |
-| G8 | `propertyrl report --experiment mcr_official_2p`, `propertyrl repro --run runs/<id>` | Abschlussbericht, Repro-Paket |
+| G8 | `propertyrl repro --run runs/<mcr_s1_run>`, danach `propertyrl report --experiment mcr_official_2p` | Abschlussbericht, Repro-Paket |
 
 Eine ausführliche Anleitung mit Laufzeiten steht in `docs/TRAINING_GUIDE.md`; `propertyrl plan
 --experiments all` schätzt die Rechenzeit auf der eigenen Maschine.

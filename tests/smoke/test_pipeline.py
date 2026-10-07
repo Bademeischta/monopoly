@@ -34,6 +34,7 @@ def test_smoke_all(tmp_path: Path) -> None:
     art = home / "artifacts"
     summary = json.loads((art / "pipeline" / "smoke_all.json").read_text(encoding="utf-8"))
     assert summary["test_ledger_empty"] is True
+    assert summary["test_ledger_unchanged"] is True
     assert summary["repro_match"] is True
     for gate in ("G3", "G4", "G5", "G6", "G7", "G8"):
         assert summary["gates"][gate] == "bereit, nicht ausgeführt", (gate, summary["gates"][gate])

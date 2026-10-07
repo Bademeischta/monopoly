@@ -91,3 +91,30 @@ def test_missing_arguments_return_usage_code(fresh_home: Path) -> None:
     assert main(["replay"]) == 2
     assert main(["train"]) == 2
     assert main(["pipeline"]) == 2
+
+
+def test_evaluate_defaults_follow_experiment(fresh_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code = main(["evaluate", "--smoke", "--split", "smoke", "--agent", "greedy_v1", "--experiment", "mcr_official_2p",
+                 "--n-seeds", "1", "--workers", "1"])  # fmt: skip
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    # experiment opponents: strongest_baseline (= strong_a_v1 before G3) is de-duplicated
+    assert sorted(data["opponents"]) == sorted(["strong_a_v1", "strong_b_v1", "greedy_v1", "roi_markov_v1",
+                                                "random_legal"])  # fmt: skip
+    assert data["agent"] == "greedy_v1" and data["experiment"] == "mcr_official_2p"
+
+
+def test_pipeline_reuses_existing_evaluations(fresh_home: Path) -> None:
+    from propertyrl.infra.pipeline import _evaluate_once
+
+    kw = {"opponents": ["random_legal"], "ruleset_id": "OFFICIAL_US_CLASSIC_2008", "n_players": 2,
+          "label": "official", "n_seeds": 1, "workers": 1}  # fmt: skip
+    first = _evaluate_once("greedy_v1", "exp_x", "smoke", True, **kw)
+    second = _evaluate_once("greedy_v1", "exp_x", "smoke", True, **kw)
+    assert second["eval_id"] == first["eval_id"]
+
+
+def test_round_robin_policies_option() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["round-robin", "--policies", "random_legal,strong_a_v1"])
+    assert args.policies == "random_legal,strong_a_v1"

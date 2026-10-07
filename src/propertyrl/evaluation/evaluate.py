@@ -50,8 +50,8 @@ def resolve_agent(agent: str) -> str:
 
 
 def resolve_opponents(opponents: list[str]) -> list[str]:
-    """Replace 'strongest_baseline' by the frozen G3 result."""
-    return [strongest_baseline() if o == "strongest_baseline" else o for o in opponents]
+    """Replace 'strongest_baseline' by the frozen G3 result and drop duplicates (order kept)."""
+    return list(dict.fromkeys(strongest_baseline() if o == "strongest_baseline" else o for o in opponents))
 
 
 def test_size(n_players: int) -> int:

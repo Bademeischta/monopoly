@@ -1,154 +1,253 @@
-# TRAINING_GUIDE – Schritt für Schritt entlang der Gates
+# TRAINING_GUIDE – Schritt für Schritt bis zum Abschlussbericht
 
-Diese Anleitung führt von der Installation bis zum Abschlussbericht. Laufzeiten beziehen sich auf die
-Referenzmessung dieses Builds (4 CPU-Kerne, siehe `docs/BUILD_REPORT.md`); `propertyrl plan --experiments
-all` rechnet sie für die eigene Maschine aus dem gemessenen Durchsatz um. Alle Befehle schreiben unter
-`$PROPERTYRL_HOME` (Standard: Repository-Wurzel) in `artifacts/`, `runs/` und `reports/`.
+Diese Anleitung führt von der Installation bis G8. Die Befehle sind gegen den Code geprüft. Laufzeiten
+gelten für 4 CPU-Kerne (gemessen: ~1.030 PPO-Schritte/s, ~10 Heuristik-Spiele/s je Kern). Nach Schritt 4
+rechnet `propertyrl plan --experiments all` sie für die eigene Maschine um.
 
-## 0. Vorbereitung
+| Schritt | Inhalt | Dauer (4 Kerne) |
+|---|---|---|
+| 1 | Installation | 10–15 min |
+| 2 | Funktionsprobe inkl. Smoke-Kette | ~35 min |
+| 3 | G0: V-Punkte prüfen | Handarbeit |
+| 4 | G1/G2 auf dem eigenen Rechner (Pflicht) | ~50 min |
+| 5 | G3: Round-Robin, Horizont, TEST-Größe | ~1–1,5 h |
+| 6 | G4: γ-Sweep und erster MCR-Agent | ~5–6 h |
+| 7 | G5: MCR mit 3 Seeds, TEST | ~7 h |
+| 8 | P1: sieben Ablationen | ~70 h |
+| 9 | G6: Self-Play | ~15 h |
+| 10 | G7: 4 Spieler (Stretch) | ~10 h (+10 h Fallback, +10 h A3) |
+| 11 | G8: Repro, Bericht, Abschluss | ~1 h |
+| optional | Seeds 4/5 für A0, A1, A2 | ~20 h |
+
+Gesamt etwa 140 h reine Rechenzeit, also rund 6 Tage ohne Pause, Schritte strikt nacheinander.
+
+## Grundregeln für die Langläufe
+
+1. **Lange Befehle nie im normalen Terminal.** Linux/macOS/WSL2: `tmux new -s prl` (abkoppeln mit
+   `Strg-b d`, zurück mit `tmux attach -t prl`) oder `nohup <befehl> > logs/<name>.log 2>&1 &`. Ruhezustand
+   abschalten: macOS `caffeinate -is <befehl>`, Linux-Desktop `systemd-inhibit --what=idle:sleep <befehl>`,
+   Windows Energieoptionen „Nie“ und Updates pausieren. Unter Windows wird WSL2 (Ubuntu, Repository unter
+   `~/` statt `/mnt/c`) empfohlen.
+2. **Jede neue Shell:** `cd ~/propertyrl && source .venv/bin/activate` (Windows:
+   `cd propertyrl; .venv\Scripts\Activate.ps1`). `echo $PROPERTYRL_HOME` muss leer sein, denn alle echten
+   Ergebnisse gehören ins Repository (`artifacts/`, `runs/`, `reports/`).
+3. **Smoke nur getrennt:** `--smoke` und `--smoke-all` ausschließlich mit `PROPERTYRL_HOME=$HOME/prl_smoke`.
+4. **Abbrechen nur mit Strg-C** (nie Fenster schließen oder `kill -9`). Nach einem Abbruch denselben
+   `propertyrl pipeline …`-Befehl erneut starten: Fertige Läufe mit gleicher Konfiguration werden
+   wiederverwendet, unterbrochene fortgesetzt und vorhandene Auswertungen nicht wiederholt (A-136). Ein
+   einzelner `propertyrl train`-Lauf wird mit `propertyrl train --resume runs/<run_id>` fortgesetzt.
+5. **Fortschritt:** `tensorboard --logdir runs` (zweites Terminal, dann http://localhost:6006);
+   `ls runs/<run_id>/checkpoints` zeigt den Stand bis 10.000.000 Schritte. Ausgaben mitschreiben:
+   `… 2>&1 | tee -a logs/<schritt>.log` (PowerShell: `| Tee-Object -FilePath logs\<schritt>.log -Append`).
+6. **Konfiguration einfrieren:** Änderungen in `configs/` (Schritt 3/4) sofort committen
+   (`git switch -c meine-konfiguration && git commit -am "…"`) und ab Schritt 5 nichts mehr ändern.
+7. **Sicherung nach jedem Gate:** `tar czf ~/prl_backup_$(date +%F).tgz artifacts runs reports` (der
+   TEST-Ledger in `artifacts/propertyrl.db` ist unwiederbringlich). Nie `git clean -x` ausführen.
+8. **Speicher:** Faustregel RAM ≥ 4 GB + 0,3 GB × CPU-Threads; sonst `export PROPERTYRL_EVAL_WORKERS=<n>`
+   dauerhaft setzen.
+
+## Schritt 1 – Installation
+
+Linux/macOS/WSL2:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e .[dev]
-propertyrl play --seed 1                                     # Funktionsprobe
-propertyrl pipeline --smoke-all                              # komplette Kette im Kleinformat (~25-35 min)
+git clone https://github.com/Bademeischta/monopoly propertyrl && cd propertyrl
+git checkout claude/propertyrl-implementation
+python3.12 -m venv .venv && source .venv/bin/activate && python --version   # 3.11.x oder 3.12.x
+python -m pip install --upgrade pip
+pip install torch --index-url https://download.pytorch.org/whl/cpu          # macOS: pip install torch
+pip install -e ".[dev]"
+mkdir -p logs
+```
+
+Windows (PowerShell): siehe README, Abschnitt „Windows“ (Execution-Policy, `py -3.12`,
+`pip install -e ".[dev]"`, `$env:PYTHONUTF8 = "1"`).
+
+## Schritt 2 – Funktionsprobe
+
+```bash
+propertyrl play --seed 1
+pytest -n auto -m "not slow"
+PROPERTYRL_HOME=$HOME/prl_smoke propertyrl pipeline --smoke-all 2>&1 | tee logs/smoke.log
+PROPERTYRL_HOME=$HOME/prl_smoke propertyrl gates
+```
+
+Woran du erkennst, dass alles funktioniert:
+
+- `play` endet mit `Sieger: 0 (strong_a_v1), Runden: 44, Entscheidungen: 2136` und
+  `state_hash: 5a8b4863fa57102ec2427441b4ef923565ab02dfbd8213e38d238f5e13be84d4`.
+- `pytest` meldet nur grüne Tests (1 deselektiert = die Smoke-Pipeline).
+- `--smoke-all` läuft ohne Traceback durch; im JSON am Ende stehen `"test_ledger_unchanged": true` und
+  `"repro_match": true` (auch in `$HOME/prl_smoke/artifacts/pipeline/smoke_all.json`).
+- `gates` im Smoke-Verzeichnis: G0 PASS, G1/G2 „bereit, nicht ausgeführt“ (normal, dort liegen keine
+  Testberichte), G3–G8 „bereit, nicht ausgeführt“ und **jede** Kriterienzeile nennt einen
+  „Smoke-Nachweis: …“. Steht irgendwo „kein Smoke-Nachweis“, hat der Smoke-Lauf nicht funktioniert.
+
+PowerShell: `$env:PROPERTYRL_HOME="$HOME\prl_smoke"; propertyrl pipeline --smoke-all; propertyrl gates;
+Remove-Item Env:PROPERTYRL_HOME`.
+
+## Schritt 3 – G0: V-Punkte
+
+Tabelle V1–V6 in `docs/RULESPEC.md` mit dem eigenen Regelheft vergleichen (Betrag der Fonds-Karte B12,
+Steuer-2, Steuer-1, Zufall-Karte A13, Karten je Deck, Spielerzahl).
+
+- Alles stimmt: `propertyrl gates --confirm-v-points`.
+- Ein Wert weicht ab: Wert in `configs/` ändern (Karten in `configs/cards/*.yaml`, Steuern in
+  `configs/board/board_us_neutral.yaml`), `verification_points` im Ruleset-YAML und die Tabelle in
+  RULESPEC anpassen, die erwarteten Werte in `tests/unit/test_data.py` und `tests/unit/test_cards_debt.py`
+  nachziehen, committen, dann `propertyrl gates --confirm-v-points`. Danach Schritt 4 komplett.
+
+## Schritt 4 – G1/G2 auf dem eigenen Rechner (Pflicht)
+
+`artifacts/` ist nicht versioniert; ohne diesen Schritt zeigt `propertyrl gates` G1/G2 als „bereit, nicht
+ausgeführt“. Im Repository-Wurzelverzeichnis, `PROPERTYRL_HOME` leer, in dieser Reihenfolge:
+
+```bash
+pytest -n auto -m "not slow" --cov=propertyrl --cov-branch \
+       --cov-report=xml:artifacts/test-reports/coverage.xml --junitxml=artifacts/test-reports/junit.xml
+propertyrl fuzz --total-decisions 10000000 --rare-events --rare-decisions 1000000     # ~7 min
+propertyrl markov-check --moves 10000000 --tolerance-pp 0.05                          # ~4 min
+PROPERTYRL_MASK_STEPS=1000000 pytest tests/env/test_masks_leak.py \
+       --junitxml=artifacts/test-reports/junit_env.xml                                # ~4 min
+propertyrl benchmark
+propertyrl plan --experiments all
 propertyrl gates
 ```
 
-Der Smoke-Lauf prüft alle Stufen technisch; seine Ergebnisse sind als „SMOKE – keine Aussagekraft“
-markiert und belasten weder SELECT-Entscheidungen noch den TEST-Ledger. Wer den Smoke-Lauf getrennt von
-echten Ergebnissen halten will, setzt `PROPERTYRL_HOME` auf ein eigenes Verzeichnis.
+Erwartung: `G1: PASS` und `G2: PASS`, Fuzz/Markov/Maskentest jeweils „(Gate-Größe)“. Aus dem Benchmark nur
+`recommendation.vec_env` übernehmen: Steht dort `subproc`, in `configs/training/ppo_default.yaml`
+`vec_env: subproc` setzen und committen; `n_envs: 16` bleibt (wird automatisch auf die Kernzahl begrenzt).
+Liegt `hours_per_run` + `eval_hours_per_run` aus `plan` nahe 12 h, `budget_hours` erhöhen.
 
-## G0 – Artefaktsatz (Woche 1)
-
-1. `docs/RULESPEC.md` lesen, insbesondere die V-Punkte V1–V6 (Betrag der Fonds-Karte B12, Steuer-2,
-   Steuer-1, Zufall-Karte A13, Karten je Deck, Spielerzahl), und mit dem eigenen Regelheft abgleichen. Abweichungen nur in den YAML-Dateien unter
-   `configs/` korrigieren (die Engine liest ausschließlich diese Werte).
-2. Bestätigen: `propertyrl gates --confirm-v-points` (schreibt `artifacts/frozen/v_points_confirmed.json`).
-   Fallback: ohne Bestätigung gelten die Standardwerte als eingefroren.
-
-## G1 – Engine verifiziert (bis Woche 5)
+## Schritt 5 – G3: Baselines und Horizont
 
 ```bash
-pytest -n auto --cov=propertyrl --cov-branch --cov-report=xml:artifacts/test-reports/coverage.xml \
-       --junitxml=artifacts/test-reports/junit.xml
-propertyrl fuzz --total-decisions 10000000 --rare-events --rare-decisions 1000000   # Gate-Größe, ~10-15 h auf 1 Kern
-propertyrl markov-check --moves 10000000 --tolerance-pp 0.05                        # Gate-Größe, ~1-2 h
-propertyrl gates --gate G1
-```
-
-Die CI-Größen (100.000 Fuzz-Entscheidungen je Konfiguration, 1 Mio. Markov-Ruheereignisse) laufen in der
-Testsuite bzw. mit `propertyrl fuzz --decisions 100000 --rare-events` und
-`propertyrl markov-check --moves 1000000 --tolerance-pp 0.15`. `propertyrl gates` kennzeichnet, ob die
-Gate-Größe erreicht ist. Fallback laut ROADMAP: Mehrfach-Asset-Angebote begrenzen bzw.
-`scarcity_auction: false` (K-05).
-
-## G2 – Environments (bis Woche 7)
-
-```bash
-PROPERTYRL_MASK_STEPS=1000000 pytest tests/env/test_masks_leak.py --junitxml=artifacts/test-reports/junit_env.xml   # 1 Mio. Schritte
-propertyrl benchmark                                    # JSON in artifacts/benchmarks/, Empfehlung für n_envs
-propertyrl gates --gate G2
-```
-
-Die Benchmark-Empfehlung (`vec_env`, `n_envs`) in `configs/training/ppo_default.yaml` übernehmen
-(`vec_env: subproc`, wenn SubprocVecEnv schneller ist). Fallback: Logging im Training ist ohnehin aus.
-
-## G3 – Baselines und Horizont (bis Woche 9)
-
-```bash
-propertyrl round-robin            # 10 Paare × 2 Blöcke × 1.000 Seeds × 2 Sitze = 40.000 Spiele, ~15-60 min
-propertyrl calibrate-horizon      # 2.000 (2P) + 1.000 (4P) Spiele ohne Horizont, ~5-30 min
+propertyrl round-robin --workers 4          # --workers = Kernzahl, wenn sonst nichts läuft
+propertyrl calibrate-horizon --workers 4
 propertyrl power --freeze 2p=1200,4p=250
 propertyrl gates --gate G3
 ```
 
-Ergebnisse: `artifacts/frozen/strongest_baseline.json`, `horizon.json`, `test_size.json`. Fallback bei
-Zyklen oder instabiler Spitze: `strong_b_v1` aus der Auswertung nehmen und `strong_a_v1` als einzige
-Referenz verwenden (Gegnerlisten in `configs/experiments/*.yaml`).
+- Round-Robin FAIL (Zyklus oder instabile Spitze): Fallback ohne `strong_b_v1`:
+  `propertyrl round-robin --policies random_legal,greedy_v1,roi_markov_v1,strong_a_v1`. Bleibt die Spitze
+  instabil, in `artifacts/frozen/strongest_baseline.json` `"policy": "strong_a_v1"` setzen (ROADMAP:
+  `strong_a_v1` als einzige Referenz) und als Abweichung notieren. `strong_b_v1` bleibt Gegner in den
+  Auswertungen (Z4 braucht ihn).
+- `calibrate-horizon` endet mit Exit-Code 1, wenn die 2P-Truncation ≥ 5 % ist (kein Absturz). G3 wird an
+  2P gemessen (A-135); eine hohe 4P-Truncation ist ein erwarteter Befund (Patt-Spiele ohne Monopole) und
+  betrifft erst G7.
+- Nach diesem Schritt `round-robin` und `calibrate-horizon` nicht mehr wiederholen: Training und
+  Auswertung lesen die eingefrorenen Dateien.
 
-## G4 – Erster Agent (bis Woche 12)
+## Schritt 6 – G4: γ-Sweep und erster Agent
 
 ```bash
-propertyrl sweep-gamma            # 3 × 2 Mio. Schritte, ~1,5-2 h je Pilot bei ~1.300 Schritten/s
-propertyrl train --experiment mcr_official_2p --seed 1
-propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p --opponents random_legal,roi_markov_v1
+propertyrl sweep-gamma 2>&1 | tee logs/sweep.log                        # 3 Piloten à 2 Mio. Schritte
+propertyrl train --experiment mcr_official_2p --seed 1 2>&1 | tee logs/mcr_s1.log
+propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p
 propertyrl gates --gate G4
 ```
 
-Der Sweep friert γ in `artifacts/frozen/gamma.json` ein. Ein MCR-Lauf mit 10 Mio. Schritten dauert bei
-~1.300 Schritten/s (4 Kerne, inklusive PPO-Updates) etwa 2,2 h plus SELECT-Evaluationen; der Budget-Wächter
-stoppt nach 12 h. Bei Problemen: `propertyrl diagnose --run runs/<id>` (Reward-Skala, Masken,
-Observation, Entropie, explained_variance, Dauerverteilung, Gegnermix).
+Erwartung: γ eingefroren, gegen `random_legal` ≥ 90 %, gegen `roi_markov_v1` > 50 % (SELECT). Die Ausgabe
+von `evaluate` nennt unter `agent` den verwendeten Checkpoint (`runs/mcr_official_2p_s1_…`, kein
+`_g…`-Pilot).
 
-Abbruch und Fortsetzung: `propertyrl train --resume runs/<run_id>` lädt den jüngsten Checkpoint
-(`final.zip` bei sauberem Abbruch, sonst den letzten periodischen), Optimiererzustand, Zähler,
-Curriculum-Stufe, Snapshot-Pool und PFSP-Statistik; offene Mehrsitz-Transitionen werden verworfen.
+**Stopp-Regel:** Nur bei G4 PASS weiter. Bei FAIL: `propertyrl diagnose --run runs/<run_id>` (Reward-Skala,
+Masken, Entropie, explained_variance, Dauerverteilung, Gegnermix), Ursache beheben, Schritt 6 wiederholen.
+Bis dahin keine TEST-Auswertung.
 
-## G5 – MCR auf TEST (bis Woche 14)
+## Schritt 7 – G5: MCR auf TEST
 
 ```bash
-propertyrl pipeline --experiment mcr_official_2p     # 3 Seeds Training, SELECT + einmalige TEST-Auswertung, Bericht
+propertyrl pipeline --experiment mcr_official_2p 2>&1 | tee logs/mcr_pipeline.log
 propertyrl gates --gate G5
 ```
 
-Die TEST-Auswertung ist je Checkpoint nur einmal möglich (Ledger). Fallbacks: Diagnose, dann Ablation N4
-als neuer Hauptpfad (`ablation_n4_buy_delegated`), dann `fallback_research_2p` (als Research beschriftet);
-bis Woche 16 sonst Negativergebnis im Bericht dokumentieren.
+Die Pipeline übernimmt den Seed-1-Lauf aus Schritt 6 (gleiche Konfiguration), trainiert Seeds 2 und 3 und
+wertet alle drei einmalig auf TEST aus. Bei Abbruch denselben Befehl erneut starten.
 
-## P1 – Ablationen (Wochen 16–17)
+Bei G5 FAIL: `propertyrl diagnose --run runs/<run_id>`; dann die Ablation N4 vorziehen
+(`propertyrl pipeline --experiment ablation_n4_buy_delegated`, Z3 im Bericht
+`reports/ablation_n4_buy_delegated.md` prüfen) und danach
+`propertyrl pipeline --experiment fallback_research_2p` (als Research beschriftet). G5 bleibt im
+Gate-Status FAIL; das Negativergebnis im Bericht dokumentieren. Bei G5 PASS `fallback_research_2p` nicht
+ausführen.
+
+## Schritt 8 – P1: Ablationen
 
 ```bash
 for e in ablation_a0_terminal ablation_a2_purdue ablation_n4_buy_delegated ablation_no_trade \
          ablation_shared_delegation ablation_no_smdp research_shortgame_2p; do
-  propertyrl pipeline --experiment $e
-done
-for e in ablation_a0_terminal mcr_official_2p ablation_a2_purdue; do   # Seeds 4 und 5 für A0, A1, A2 im Abschlussbericht
-  propertyrl train --experiment $e --extended
+  propertyrl pipeline --experiment $e 2>&1 | tee -a logs/p1_$e.log
 done
 ```
 
-Jede Ablation: 3 Seeds × ~2,2 h Training plus Evaluation. Die Reports vergleichen gepaart gegen A1 mit
-Holm-Korrektur.
+PowerShell: `foreach ($e in 'ablation_a0_terminal','ablation_a2_purdue','ablation_n4_buy_delegated',
+'ablation_no_trade','ablation_shared_delegation','ablation_no_smdp','research_shortgame_2p')
+{ propertyrl pipeline --experiment $e }`. Die Schleife darf nach einem Abbruch einfach neu gestartet werden.
 
-## G6 – Self-Play (bis Woche 19)
+## Schritt 9 – G6: Self-Play
 
 ```bash
-propertyrl pipeline --experiment selfplay_official_2p
+propertyrl pipeline --experiment selfplay_official_2p 2>&1 | tee logs/selfplay.log
 propertyrl gates --gate G6
 ```
 
-Start vom MCR-Checkpoint desselben Seeds; Snapshots alle 200.000 Schritte, Champion-Gate auf zwei
-SELECT-Blöcken. Die TEST-Auswertung des Champions enthält in einem Aufruf die Baselines, den MCR-Agenten und
-ältere Snapshots (Z4). Fallback: MCR-Agent bleibt Champion, Zyklen analysieren.
+Voraussetzung sind die drei MCR-Läufe aus Schritt 7 (Self-Play-Seed s startet vom MCR-Seed s). Die
+TEST-Auswertung des Champions enthält automatisch den MCR-Agenten und ältere Snapshots (Z4). Bei FAIL bleibt
+der MCR-Agent Champion; Zyklen in `runs/<selfplay_run>/training_state.json` (`champion_history`)
+analysieren. G8 hängt nicht von G6 ab.
 
-## G7 – 4 Spieler (Stretch, bis Woche 23)
+## Schritt 10 – G7: 4 Spieler (Stretch)
 
 ```bash
-propertyrl pipeline --experiment fourp_official
-propertyrl pipeline --experiment ablation_a3_kingmaking_4p
+propertyrl pipeline --experiment fourp_official 2>&1 | tee logs/fourp.log
 propertyrl gates --gate G7
+# nur bei FAIL:
+propertyrl pipeline --experiment fourp_single_seat_fallback && propertyrl gates --gate G7
+# Ablation A3 (nicht gate-relevant):
+propertyrl pipeline --experiment ablation_a3_kingmaking_4p
 ```
 
-Fallback: `propertyrl pipeline --experiment fourp_single_seat_fallback`; reicht auch das nicht, 4P als
-Ausblick dokumentieren. Kingmaking: `propertyrl kingmaking --agent experiment:fourp_official:1`.
+Reicht auch der Fallback nicht, 4P im Bericht als Ausblick dokumentieren.
 
-## G8 – Abschluss (Woche 26)
+## Schritt 11 – G8: Abschluss
 
 ```bash
+MCR_RUN=$(ls -d runs/mcr_official_2p_s1_* | sort | tail -1)    # der TEST-ausgewertete Seed-1-Lauf
+propertyrl repro --run "$MCR_RUN"
 propertyrl report --experiment mcr_official_2p
-propertyrl repro --run runs/<mcr_run_id>
 propertyrl license-check
 propertyrl gates
 ```
 
-`repro` spielt alle gespeicherten Auswertungen des Laufs Spiel für Spiel nach, vergleicht die Ergebnisse
-und erzeugt den Bericht neu.
+Reihenfolge beachten: `repro` erzeugt den Bericht ebenfalls neu, deshalb `report` danach, damit dessen
+Gate-Tabelle G8 bereits enthält. Für alle anderen Experimente liegen die Berichte unter
+`reports/<experiment>.md`.
 
-## Planung und Budget
+## Optional – Seeds 4 und 5 für A0, A1 und A2
 
-- `propertyrl plan --experiments all` – Laufzeit je Run, Summen, Evaluationsanteil, Warnungen (> 12 h je
-  Run, Evaluation > 20 %).
-- Optional: `propertyrl train ... --wandb` protokolliert nur technische Metriken in W&B (Standard offline,
-  `pip install -e .[wandb]`).
+Nur wenn Zeit übrig ist (ROADMAP: Pufferwochen); G5 bleibt davon unberührt (A-137).
+
+```bash
+for e in ablation_a0_terminal mcr_official_2p ablation_a2_purdue; do
+  propertyrl train --experiment $e --extended
+  for s in 4 5; do
+    propertyrl evaluate --agent experiment:$e:$s --split select --experiment $e
+    propertyrl evaluate --agent experiment:$e:$s --split test --experiment $e
+  done
+  propertyrl report --experiment $e
+done
+```
+
+## Wenn etwas schiefgeht
+
+| Symptom | Maßnahme |
+|---|---|
+| Terminal geschlossen, Strom weg, Abbruch | denselben `pipeline`-Befehl neu starten bzw. `propertyrl train --resume runs/<id>` |
+| `SeedLedgerError` | Agent wurde schon auf TEST ausgewertet – nicht erzwingen; `--force-retest` nur bewusst, wird im Bericht markiert |
+| `EngineWatchdogError` | Log in `artifacts/errors/` sichern, Fehler melden; betroffenen Lauf mit `--resume` fortsetzen |
+| Gate FAIL | Fallbacks in `docs/ROADMAP.md`, Diagnose mit `propertyrl diagnose --run runs/<id>` |
+| Lauf stoppt nach 12 h | Budget-Wächter: `budget_hours` in `configs/training/ppo_default.yaml` prüfen |
+| Speicher voll (OOM) | `PROPERTYRL_EVAL_WORKERS` kleiner setzen |
+| Windows: `UnicodeEncodeError` | `$env:PYTHONUTF8 = "1"` |

@@ -136,3 +136,37 @@ def test_resume_continues_interrupted_run(fresh_home: Path, monkeypatch: pytest.
     assert diag["checks"]["masks"]["illegal"] == 0
     assert diag["checks"]["observation"]["finite_and_in_unit_interval"]
     assert (runs[0] / "diagnose.json").exists()
+
+
+def test_pipeline_runs_are_reused_or_resumed(fresh_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """train_or_reuse resumes an interrupted run, then reuses the finished one (A-136); pilots are never used."""
+    original = train_mod.resolve
+
+    def small(experiment: Any, seed: int, smoke: bool = False, gamma: Any = None, timesteps: Any = None) -> Any:
+        return original(experiment, seed, smoke, gamma, 1024)
+
+    class InterruptingBudget(BudgetCallback):
+        calls = 0
+
+        def _on_step(self) -> bool:
+            InterruptingBudget.calls += 1
+            if InterruptingBudget.calls == 200:
+                raise KeyboardInterrupt
+            return super()._on_step()
+
+    monkeypatch.setattr(train_mod, "resolve", small)
+    monkeypatch.setattr(train_mod, "BudgetCallback", InterruptingBudget)
+    with pytest.raises(KeyboardInterrupt):
+        train_mod.train_or_reuse("mcr_official_2p", 1, smoke=True)
+    (first,) = list((fresh_home / "runs").iterdir())
+    assert load_run_meta(first)["status"] == "interrupted"
+    assert train_mod.find_checkpoint("mcr_official_2p", 1, True) is None  # unfinished runs are never used
+    monkeypatch.setattr(train_mod, "BudgetCallback", BudgetCallback)
+    resumed = train_mod.train_or_reuse("mcr_official_2p", 1, smoke=True)
+    assert resumed["run_id"] == first.name and resumed["status"] == "completed"
+    reused = train_mod.train_or_reuse("mcr_official_2p", 1, smoke=True)
+    assert reused["reused"] and reused["run_id"] == first.name
+    assert len(list((fresh_home / "runs").iterdir())) == 1
+    assert train_mod.find_checkpoint("mcr_official_2p", 1, True) is not None
+    assert train_mod.is_sweep_pilot("mcr_official_2p_g0.995_s1_20261007-1_1", "mcr_official_2p")
+    assert not train_mod.is_sweep_pilot("mcr_official_2p_s1_20261007-1_1", "mcr_official_2p")

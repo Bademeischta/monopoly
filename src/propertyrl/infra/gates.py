@@ -244,8 +244,15 @@ def gate_g3() -> list[dict[str, str]]:
     c1 = _crit("Round-Robin transitiv, stabile Spitze, eingefroren",
                READY if rr is None else (PASS if rr.get("passed") else FAIL),
                ev_rr if rr is None else f"stärkste Baseline {rr.get('policy')}")  # fmt: skip
-    c2 = _crit("Horizont kalibriert, Truncation < 5 %", READY if hz is None else (PASS if hz.get("passed") else FAIL),
-               ev_hz if hz is None else f"H2P = {hz.get('horizon_2p')}, H4P = {hz.get('horizon_4p')}")  # fmt: skip
+    if hz is None:
+        hz_detail = ev_hz
+    else:
+        t2 = (hz.get("details_2p") or {}).get("truncation_rate")
+        t4 = (hz.get("details_4p") or {}).get("truncation_rate")
+        hz_detail = (f"H2P = {hz.get('horizon_2p')} (Truncation {t2}), H4P = {hz.get('horizon_4p')} "
+                     f"(Truncation {t4}, 4P separat, A-135)")  # fmt: skip
+    c2 = _crit("Horizont 2P kalibriert, Truncation < 5 %",
+               READY if hz is None else (PASS if hz.get("passed") else FAIL), hz_detail)  # fmt: skip
     return [c1, c2]
 
 
@@ -309,7 +316,7 @@ def gate_g7() -> list[dict[str, str]]:
 def gate_g8() -> list[dict[str, str]]:
     from propertyrl.infra.storage import reports_dir
 
-    repro = sorted(sub_artifacts("repro").glob("repro_*.json"))
+    repro = sorted(sub_artifacts("repro").glob("repro_*.json"), key=lambda p: p.stat().st_mtime)
     real = [p for p in repro if "smoke" not in p.name]
     smoke = [p for p in repro if "smoke" in p.name]
     if not real:

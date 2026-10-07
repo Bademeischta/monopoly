@@ -1,0 +1,6 @@
+# Normalise all text files to LF on every platform (tests and ruff require LF, also on Windows checkouts).
+* text=auto eol=lf
+*.zip binary
+*.png binary
+*.parquet binary
+*.db binary

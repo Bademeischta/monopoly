@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -166,3 +167,28 @@ def test_gate_size_mask_run_merges_reports(fresh_home: Path) -> None:
     crit = next(c for c in gates.gate_g2() if c["name"].startswith("0 illegale"))
     assert crit["status"] == f"{gates.PASS} (Gate-Größe)"
     assert "1,000,000" in crit["detail"]
+
+
+def test_gate_g8_uses_newest_repro(fresh_home: Path) -> None:
+    import os
+
+    repro = fresh_home / "artifacts" / "repro"
+    write_json(repro / "repro_zzz_old.json", {"match": False})
+    write_json(repro / "repro_aaa_new.json", {"match": True})
+    os.utime(repro / "repro_zzz_old.json", (1, 1))
+    crit = gates.gate_g8()[0]
+    assert crit["status"] == gates.PASS and crit["detail"] == "repro_aaa_new.json"
+
+
+def test_horizon_gate_is_judged_on_2p(fresh_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from propertyrl.evaluation import horizon
+
+    def fake(n_games: int, n_players: int, smoke: bool, workers: Any) -> dict[str, Any]:
+        rate = 0.02 if n_players == 2 else 0.37
+        return {"horizon": 100 + n_players, "truncation_rate": rate, "passed": rate < 0.05}
+
+    monkeypatch.setattr(horizon, "calibrate", fake)
+    res = horizon.calibrate_horizon(10, smoke=False, workers=1)
+    assert res["passed"] is True and res["passed_4p"] is False
+    g3 = gates.gate_g3()[1]
+    assert g3["status"] == gates.PASS and "4P separat" in g3["detail"]

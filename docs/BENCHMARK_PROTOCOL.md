@@ -124,7 +124,7 @@ desselben Ledger-Eintrags (kein zusätzlicher Ledger-Verbrauch); Baselines als R
   Siegquote); keine signifikanten Dreieckszyklen; identische Spitze in beiden Blöcken →
   `artifacts/frozen/strongest_baseline.json`.
 - Horizont: 2.000 Spiele (`strong_a_v1` gegen `strong_b_v1` und gegen sich selbst) ohne Horizont bis 5.000
-  Runden; `H = ceil(Median + 2 × SD)` der natürlich beendeten Spiele; Truncation-Quote bei H < 5 % →
+  Runden; `H = ceil(Median + 2 × SD)` der natürlich beendeten Spiele; G3-Bedingung: 2P-Truncation-Quote bei H < 5 % (4P separat berichtet, A-135) →
   `artifacts/frozen/horizon.json` (2P und 4P), gelesen von allen Rulesets (auch als `max_rounds` des
   Kurzspiels, A-31).
 

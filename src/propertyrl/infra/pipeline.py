@@ -58,6 +58,25 @@ def selfplay_opponents(result: dict[str, Any], smoke: bool, max_snapshots: int =
     return out + [f"sb3:{p}" for p in older]
 
 
+def existing_eval(agent: str, experiment: str, split: str, smoke: bool) -> dict[str, Any] | None:
+    """Newest stored evaluation of ``agent`` (policy spec) for an experiment and split, if any."""
+    rows = query(
+        "SELECT summary_json FROM eval_summaries WHERE agent_hash = ? AND experiment = ? AND split = ? AND smoke = ? "
+        "ORDER BY created DESC LIMIT 1",
+        (ledger.agent_hash(agent), experiment, split, int(smoke)),
+    )
+    return json.loads(rows[0][0]) if rows else None
+
+
+def _evaluate_once(agent: str, experiment: str, split: str, smoke: bool, **kwargs: Any) -> dict[str, Any]:
+    """Evaluate unless this agent already has an evaluation for the experiment and split (re-runnable pipeline)."""
+    found = existing_eval(agent, experiment, split, smoke)
+    if found is not None:
+        log.info("reusing %s evaluation %s of %s", split, found.get("eval_id"), agent)
+        return found
+    return evaluate_agent(agent, split=split, experiment=experiment, smoke=smoke, **kwargs)
+
+
 def evaluate_experiment_agents(
     experiment: str, results: list[dict[str, Any]], smoke: bool, force_retest: bool = False
 ) -> list[dict[str, Any]]:
@@ -78,15 +97,17 @@ def evaluate_experiment_agents(
     for res in results:
         agent = _agent_of(res, selfplay)
         opps = opponents + selfplay_opponents(res, smoke) if selfplay else opponents
+        common = {"opponents": opps, "ruleset_id": exp.env.ruleset, "n_players": n_players, "label": exp.label}
         if smoke:
-            out.append(evaluate_agent(agent, opps, "smoke", None, exp.env.ruleset, n_players, experiment,
-                                      smoke=True, label=exp.label))  # fmt: skip
+            out.append(_evaluate_once(agent, experiment, "smoke", True, **common))
             continue
-        out.append(evaluate_agent(agent, opps, "select", exp.evaluation.n_select_seeds, exp.env.ruleset,
-                                  n_players, experiment, label=exp.label))  # fmt: skip
+        out.append(_evaluate_once(agent, experiment, "select", False, n_seeds=exp.evaluation.n_select_seeds, **common))
         n_test = None if exp.evaluation.n_test_seeds == "frozen" else int(exp.evaluation.n_test_seeds)
-        out.append(evaluate_agent(agent, opps, "test", n_test, exp.env.ruleset, n_players, experiment,
-                                  force_retest=force_retest, label=exp.label))  # fmt: skip
+        if force_retest:
+            out.append(evaluate_agent(agent, split="test", n_seeds=n_test, experiment=experiment, force_retest=True,
+                                      **common))  # fmt: skip
+        else:
+            out.append(_evaluate_once(agent, experiment, "test", False, n_seeds=n_test, **common))
     return out
 
 
@@ -118,7 +139,7 @@ def run_experiment_pipeline(experiment: str, smoke: bool = False, force_retest: 
     """Training (all seeds) -> evaluation -> (kingmaking) -> report."""
     from propertyrl.evaluation.report import generate_report
     from propertyrl.training.sweep import run_gamma_sweep
-    from propertyrl.training.train import train
+    from propertyrl.training.train import train, train_or_reuse
 
     exp = load_experiment(experiment)
     if exp.mode == "sweep":
@@ -126,7 +147,9 @@ def run_experiment_pipeline(experiment: str, smoke: bool = False, force_retest: 
         report = generate_report(experiment, smoke)
         return {"experiment": experiment, "sweep": sweep, "report": str(report)}
     seeds = exp.training.seeds[:1] if smoke else exp.training.seeds
-    results = [train(experiment, seed, smoke=smoke) for seed in seeds]
+    # Finished runs with the identical configuration are reused and interrupted ones resumed (A-136);
+    # smoke runs always train afresh.
+    results = [train(experiment, seed, smoke=True) if smoke else train_or_reuse(experiment, seed) for seed in seeds]
     evals = evaluate_experiment_agents(experiment, results, smoke, force_retest)
     km = None
     if exp.env.n_players > 2:
@@ -199,6 +222,7 @@ def smoke_all() -> dict[str, Any]:
     from propertyrl.training.train import train
 
     so = smoke_settings()
+    ledger_before = len(ledger.entries())
     t0 = time.perf_counter()
     steps: dict[str, Any] = {}
 
@@ -246,11 +270,12 @@ def smoke_all() -> dict[str, Any]:
         "repro_match": rp["match"],
         "gates": {g: v["status"] for g, v in gates.items()},
         "test_ledger_empty": ledger.is_empty(),
+        "test_ledger_unchanged": len(ledger.entries()) == ledger_before,
         "experiments": list_experiments(),
         "strongest_baseline_used": strongest_baseline(),
         "artifacts_dir": str(artifacts_dir()),
     }
     write_json(sub_artifacts("pipeline") / "smoke_all.json", result)
-    if not result["test_ledger_empty"]:
+    if not result["test_ledger_unchanged"]:
         raise RuntimeError("smoke pipeline wrote to the TEST ledger")
     return result

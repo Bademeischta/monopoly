@@ -76,9 +76,34 @@ def _pooled(groups: Sequence[tuple[str, Sequence[dict[str, Any]]]], seed_key: Se
             "p_value": boot.p_value, "clusters": boot.n_clusters}  # fmt: skip
 
 
+def training_seed_of(agent: str) -> int | None:
+    """Training seed of an RL agent spec ``sb3:<runs>/<run_id>/<file>.zip`` from its run.json (None if unknown)."""
+    _, _, path = agent.partition(":")
+    meta_path = Path(path).parent / "run.json"
+    if not path or not meta_path.exists():
+        return None
+    seed = json.loads(meta_path.read_text(encoding="utf-8")).get("training_seed")
+    return int(seed) if seed is not None else None
+
+
 def z3(experiment: str = "mcr_official_2p", split: str = "test", smoke: bool = False) -> dict[str, Any]:
-    """Z3: pooled over the training seeds the lower 95 % bound > 50 % and every seed's point estimate > 50 %."""
-    evals = latest_evals(experiment, split, smoke)
+    """Z3: pooled over the training seeds the lower 95 % bound > 50 % and every seed's point estimate > 50 %.
+
+    Only the experiment's configured training seeds count, with the newest evaluation per seed, so additional
+    seeds (``--extended``) or repeated runs do not change the gate (A-137).
+    """
+    from propertyrl.infra.config import list_experiments, load_experiment
+
+    configured = set(load_experiment(experiment).training.seeds) if experiment in list_experiments() else None
+    by_seed: dict[Any, tuple[dict[str, Any], Path]] = {}
+    excluded = []
+    for summary, path in latest_evals(experiment, split, smoke):
+        seed = training_seed_of(summary["agent"])
+        if seed is not None and configured is not None and seed not in configured:
+            excluded.append(summary["agent"])
+            continue
+        by_seed[seed if seed is not None else summary["agent"]] = (summary, path)
+    evals = list(by_seed.values())
     per_agent = []
     groups = []
     primary = None
@@ -99,7 +124,7 @@ def z3(experiment: str = "mcr_official_2p", split: str = "test", smoke: bool = F
     )
     return {"criterion": "Z3", "experiment": experiment, "split": split, "smoke": smoke, "primary_opponent": primary,
             "agents": per_agent, "pooled": pooled, "required_seeds": Z3_MIN_SEEDS, "evaluated": bool(evals),
-            "passed": bool(passed)}  # fmt: skip
+            "excluded_extra_seeds": excluded, "passed": bool(passed)}  # fmt: skip
 
 
 def _rate(summary: dict[str, Any], opponent: str) -> float | None:

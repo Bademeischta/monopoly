@@ -156,6 +156,7 @@ def test_round_robin_smoke_writes_frozen_file(fresh_home: Path) -> None:
     assert res["strongest"] in ("random_legal", "greedy_v1")
     assert (fresh_home / "artifacts" / "frozen" / "strongest_baseline_smoke.json").exists()
     assert not (fresh_home / "artifacts" / "frozen" / "strongest_baseline.json").exists()
+    assert not (fresh_home / "artifacts" / "roundrobin" / "latest.json").exists()  # read by the real report
 
 
 def test_kingmaking_small(fresh_home: Path) -> None:

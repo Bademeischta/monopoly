@@ -130,7 +130,8 @@ def cmd_round_robin(a: argparse.Namespace) -> int:
     from propertyrl.training.smoke import smoke_settings
 
     k = a.seeds_per_block or (smoke_settings().roundrobin_seeds_per_block if a.smoke else None)
-    res = run_round_robin(k, a.smoke, a.workers)
+    policies = a.policies.split(",") if a.policies else None
+    res = run_round_robin(k, a.smoke, a.workers, policies=policies)
     _print({"strongest": res["strongest"], "passed": res["passed"], "transitive": res["transitive"],
             "stable_top": res["stable_top"], "elo": res["elo"],
             "ranking": {b: v["ranking"] for b, v in res["blocks"].items()}})  # fmt: skip
@@ -204,13 +205,29 @@ def cmd_selfplay(a: argparse.Namespace) -> int:
     return 0
 
 
+DEFAULT_EVAL_OPPONENTS = "strongest_baseline,strong_a_v1,strong_b_v1,greedy_v1,roi_markov_v1,random_legal"
+
+
 def cmd_evaluate(a: argparse.Namespace) -> int:
     from propertyrl.evaluation.evaluate import evaluate_agent
+    from propertyrl.infra.config import list_experiments, load_experiment
 
     split = "smoke" if a.smoke and a.split != "select" else a.split
-    res = evaluate_agent(a.agent, a.opponents.split(","), split, a.n_seeds, a.ruleset, a.players, a.experiment,
-                         a.force_retest, a.workers, smoke=a.smoke)  # fmt: skip
-    _print({"eval_id": res["eval_id"], "label": res["label"],
+    # Without explicit values the experiment's own evaluation settings apply (same as `pipeline`).
+    opponents = a.opponents.split(",") if a.opponents else DEFAULT_EVAL_OPPONENTS.split(",")
+    ruleset, players, label = a.ruleset or "OFFICIAL_US_CLASSIC_2008", a.players or 2, "official"
+    if a.experiment in list_experiments():
+        exp = load_experiment(a.experiment)
+        players = a.players or exp.env.n_players
+        ruleset = a.ruleset or exp.env.ruleset
+        label = exp.label
+        if not a.opponents:
+            opponents = list(exp.evaluation.opponents)
+        if players > 2:
+            opponents = opponents[: players - 1]
+    res = evaluate_agent(a.agent, opponents, split, a.n_seeds, ruleset, players, a.experiment, a.force_retest,
+                         a.workers, smoke=a.smoke, label=label)  # fmt: skip
+    _print({"eval_id": res["eval_id"], "agent": res["agent"], "experiment": res["experiment"], "label": res["label"],
             "opponents": {k: {x: v[x] for x in ("games", "win_rate", "wilson_lower", "wilson_upper")}
                           for k, v in res["opponents"].items()}})  # fmt: skip
     return 0
@@ -331,6 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-4p", action="store_true")
     sp = add("round-robin", cmd_round_robin, "Baseline-Round-Robin (G3)", smoke=True)
     sp.add_argument("--seeds-per-block", type=int)
+    sp.add_argument("--policies", help="Komma-Liste (G3-Fallback ohne strong_b_v1); Standard: alle fünf")
     sp.add_argument("--workers", type=int)
     sp = add("power", cmd_power, "Stichprobengröße", smoke=True)
     sp.add_argument("--p", type=float, default=0.5)
@@ -350,10 +368,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("evaluate", cmd_evaluate, "Duplicate-Evaluation", smoke=True)
     sp.add_argument("--split", choices=("select", "test", "smoke"), default="select")
     sp.add_argument("--agent", required=True)
-    sp.add_argument("--opponents", default="strongest_baseline,strong_a_v1,strong_b_v1,greedy_v1")
+    sp.add_argument("--opponents", help="Komma-Liste; Standard: Gegnerliste des Experiments (--experiment)")
     sp.add_argument("--n-seeds", type=int)
-    sp.add_argument("--ruleset", default="OFFICIAL_US_CLASSIC_2008")
-    sp.add_argument("--players", type=int, default=2)
+    sp.add_argument("--ruleset", help="Standard: Ruleset des Experiments, sonst OFFICIAL_US_CLASSIC_2008")
+    sp.add_argument("--players", type=int, help="Standard: Spielerzahl des Experiments, sonst 2")
     sp.add_argument("--experiment", default="adhoc")
     sp.add_argument("--force-retest", action="store_true")
     sp.add_argument("--workers", type=int)
@@ -381,6 +399,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Entry point."""
     args = build_parser().parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):  # γ, ü etc. must not crash redirected output on Windows (cp1252)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
     from propertyrl.infra.logging_setup import setup_logging
 
     setup_logging(getattr(logging, str(args.log_level).upper(), logging.WARNING))

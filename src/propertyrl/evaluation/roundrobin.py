@@ -108,5 +108,6 @@ def run_round_robin(
     frozen = {"policy": result["strongest"], "passed": result["passed"], "transitive": result["transitive"],
               "stable_top": result["stable_top"], "smoke": smoke, "seeds_per_block": k}  # fmt: skip
     write_json(frozen_dir() / ("strongest_baseline_smoke.json" if smoke else "strongest_baseline.json"), frozen)
-    write_json(out / "latest.json", result)
+    if not smoke:  # the real report reads latest.json; smoke results stay in roundrobin_smoke.json
+        write_json(out / "latest.json", result)
     return result

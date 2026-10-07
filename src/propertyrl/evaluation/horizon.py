@@ -73,6 +73,9 @@ def calibrate_horizon(
         four = calibrate(max(4, n_games // 2), 4, smoke, workers)
         result["horizon_4p"] = four["horizon"]
         result["details_4p"] = four
-    result["passed"] = bool(two["passed"] and (not include_4p or result["details_4p"]["passed"]))
+    # G3 condition (§8.10) refers to the 2P calibration; the 4P result is reported separately (A-135).
+    result["passed"] = bool(two["passed"])
+    if include_4p:
+        result["passed_4p"] = bool(result["details_4p"]["passed"])
     write_json(frozen_dir() / ("horizon_smoke.json" if smoke else "horizon.json"), result)
     return result

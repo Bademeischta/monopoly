@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
+import re
 from pathlib import Path
 from typing import Any
 
@@ -176,17 +178,40 @@ def env_base_seed(seed: int) -> int:
     return int(u64(seed, C.STREAM_TRAIN, 0) % 1_000_000_000)
 
 
-def find_checkpoint(experiment: str, seed: int | None, smoke: bool, kind: str = "best_select") -> Path | None:
-    """Most recent checkpoint of a finished run of ``experiment`` (same seed preferred)."""
-    rows = query("SELECT run_id, run_json FROM runs WHERE experiment = ? ORDER BY started DESC", (experiment,))
-    import json
+FINISHED = ("completed", "budget_stopped")
 
-    candidates = []
+
+def is_sweep_pilot(run_id: str, experiment: str) -> bool:
+    """γ-sweep pilots are stored under the MCR experiment with a ``_g<gamma>`` tag in the run id."""
+    return re.match(rf"^{re.escape(experiment)}_g\d", run_id) is not None
+
+
+def run_config(exp: ExperimentConfig, ppo: PPOConfig, env_cfg: EnvConfig) -> dict[str, Any]:
+    """Fully resolved configuration of a run (its SHA-256 is the run's config_hash)."""
+    return {"experiment": exp.model_dump(mode="json"), "ppo": ppo.model_dump(mode="json"), "env": env_cfg.to_dict()}
+
+
+def experiment_runs(experiment: str, smoke: bool) -> list[dict[str, Any]]:
+    """run.json of every run of ``experiment`` (newest first, sweep pilots excluded)."""
+    rows = query("SELECT run_id, run_json FROM runs WHERE experiment = ? ORDER BY started DESC", (experiment,))
+    out = []
     for run_id, run_json in rows:
         meta = json.loads(run_json)
-        if bool(meta.get("smoke")) != smoke:
+        if bool(meta.get("smoke")) == smoke and not is_sweep_pilot(run_id, experiment):
+            out.append(meta)
+    return out
+
+
+def find_checkpoint(experiment: str, seed: int | None, smoke: bool, kind: str = "best_select") -> Path | None:
+    """Most recent checkpoint of a finished run of ``experiment`` (same seed preferred).
+
+    Sweep pilots and runs that were interrupted or are still running are never used.
+    """
+    candidates = []
+    for meta in experiment_runs(experiment, smoke):
+        if meta.get("status") not in FINISHED:
             continue
-        candidates.append((meta.get("training_seed") == seed, run_id))
+        candidates.append((meta.get("training_seed") == seed, meta["run_id"]))
     candidates.sort(key=lambda x: not x[0])
     for _, run_id in candidates:
         base = runs_dir() / run_id
@@ -220,8 +245,7 @@ def train(
         raise ConfigError("use 'propertyrl sweep-gamma' for the gamma sweep experiment")
     multi = exp.training.algorithm == "multiseat_ppo"
     seed_everything(seed)
-    full_cfg = {"experiment": exp.model_dump(mode="json"), "ppo": ppo.model_dump(mode="json"),
-                "env": env_cfg.to_dict()}  # fmt: skip
+    full_cfg = run_config(exp, ppo, env_cfg)
     if resume is not None:
         run_id = meta["run_id"]
         rdir = run_dir(run_id)
@@ -342,3 +366,23 @@ def train(
         "select_history": ctx.select_history,
         "gamma": ppo.gamma,
     }
+
+
+def train_or_reuse(experiment: str, seed: int, smoke: bool = False) -> dict[str, Any]:
+    """Pipeline step for one seed: reuse a finished run with the identical configuration, resume an
+    interrupted one, or train a new run. Makes ``propertyrl pipeline`` safe to re-run after an abort (A-136)."""
+    exp, ppo, env_cfg = resolve(experiment, seed, smoke)
+    wanted = config_hash(run_config(exp, ppo, env_cfg))
+    for meta in experiment_runs(experiment, smoke):
+        if meta.get("training_seed") != seed or meta.get("config_hash") != wanted:
+            continue
+        rdir = run_dir(meta["run_id"])
+        if meta.get("status") in FINISHED and (rdir / "final.zip").exists():
+            log.info("reusing finished run %s for %s seed %d", meta["run_id"], experiment, seed)
+            return {"run_id": meta["run_id"], "run_dir": str(rdir), "final": str(rdir / "final.zip"),
+                    "status": meta.get("status"), "reused": True}  # fmt: skip
+        if (rdir / "final.zip").exists() or any((rdir / "checkpoints").glob("ckpt_*.zip")):
+            log.info("resuming run %s (%s) for %s seed %d", meta["run_id"], meta.get("status"), experiment, seed)
+            return train("", 0, resume=rdir)
+        break
+    return train(experiment, seed, smoke=smoke)
