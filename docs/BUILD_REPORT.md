@@ -374,7 +374,9 @@ for e in ablation_a0_terminal ablation_a2_purdue ablation_n4_buy_delegated ablat
          ablation_shared_delegation ablation_no_smdp research_shortgame_2p; do
   propertyrl pipeline --experiment $e
 done
-propertyrl train --experiment mcr_official_2p --extended            # 5 Seeds für A0, A1, A2 im Abschlussbericht
+for e in ablation_a0_terminal mcr_official_2p ablation_a2_purdue; do      # Seeds 4 und 5 für A0, A1, A2
+  propertyrl train --experiment $e --extended
+done
 
 # G6, G7
 propertyrl pipeline --experiment selfplay_official_2p

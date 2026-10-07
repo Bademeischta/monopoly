@@ -176,7 +176,10 @@ def cmd_train(a: argparse.Namespace) -> int:
         print("--experiment oder --resume angeben", file=sys.stderr)
         return 2
     exp = load_experiment(a.experiment)
-    seeds = [a.seed] if a.seed is not None else exp.training.seeds + (exp.training.extended_seeds if a.extended else [])
+    if a.seed is not None:
+        seeds = [a.seed]
+    else:
+        seeds = list(exp.training.extended_seeds) if a.extended else list(exp.training.seeds)
     if a.smoke:
         seeds = seeds[:1]
     for seed in seeds:
@@ -339,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--experiment")
     sp.add_argument("--seed", type=int)
     sp.add_argument("--resume")
-    sp.add_argument("--extended", action="store_true", help="zusätzliche Seeds für den Abschlussbericht")
+    sp.add_argument("--extended", action="store_true", help="nur extended_seeds (Abschlussbericht)")
     sp.add_argument("--wandb", action="store_true", help="optional: technische Metriken an W&B (Standard offline)")
     add("sweep-gamma", cmd_sweep, "γ-Sweep", smoke=True)
     sp = add("selfplay", cmd_selfplay, "Self-Play-Training", smoke=True)
