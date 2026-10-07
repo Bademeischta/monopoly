@@ -28,8 +28,8 @@ Enthalten sind:
 ## Installation
 
 Voraussetzung: Python 3.11, 3.12 oder 3.13 (prüfen mit `python3.12 --version`). PyTorch wird als CPU-Version
-installiert (MLP-Policies laufen auf der CPU; eine GPU ist nicht nötig). Empfohlen sind Linux oder WSL2
-(Ubuntu) unter Windows; natives Windows wird in der CI mitgetestet.
+installiert (MLP-Policies laufen auf der CPU; eine GPU ist nicht nötig). Linux, macOS und natives
+Windows (PowerShell, ohne WSL) werden unterstützt; Linux und Windows laufen in der CI.
 
 ### Linux und macOS
 
@@ -74,7 +74,7 @@ pytest -n auto -m "not slow"                      # Testsuite ohne die 30-min-Sm
 ```
 
 Die vollständige, geprüfte Schritt-für-Schritt-Anleitung bis zum Abschlussbericht steht in
-`docs/TRAINING_GUIDE.md`.
+`docs/TRAINING_GUIDE.md` (mit einem Anhang aller Befehle für Windows-PowerShell).
 
 Als Bibliothek:
 
