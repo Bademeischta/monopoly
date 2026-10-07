@@ -366,7 +366,7 @@ propertyrl power --freeze 2p=1200,4p=250
 # G4 (Sweep ~3 × 0,5 h, MCR-Lauf ~2,7 h bei 4 Kernen)
 propertyrl sweep-gamma
 propertyrl train --experiment mcr_official_2p --seed 1
-propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --opponents random_legal,roi_markov_v1
+propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p --opponents random_legal,roi_markov_v1
 
 # G5 (MCR) und P1 (Ablationen)
 propertyrl pipeline --experiment mcr_official_2p

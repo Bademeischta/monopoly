@@ -73,7 +73,7 @@ Referenz verwenden (Gegnerlisten in `configs/experiments/*.yaml`).
 ```bash
 propertyrl sweep-gamma            # 3 × 2 Mio. Schritte, ~1,5-2 h je Pilot bei ~1.300 Schritten/s
 propertyrl train --experiment mcr_official_2p --seed 1
-propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --opponents random_legal,roi_markov_v1
+propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p --opponents random_legal,roi_markov_v1
 propertyrl gates --gate G4
 ```
 
