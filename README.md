@@ -52,8 +52,9 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e .[dev]
 ```
 
-Exakt reproduzierbare Umgebung: `pip install -r requirements-lock.txt` (unter Linux mit CPU-torch erzeugt)
-und danach `pip install -e . --no-deps`. Optionale Extras: `.[wandb]` (standardmäßig aus), `.[mutmut]`
+Exakt reproduzierbare Umgebung: `pip install -r requirements-lock.txt` (unter Linux x86_64 mit Python 3.12
+aufgelöst; torch aus PyPI, dessen CUDA-Laufzeitpakete nur unter Linux installiert werden) und danach
+`pip install -e . --no-deps`. Optionale Extras: `.[wandb]` (standardmäßig aus), `.[mutmut]`
 (nur Linux/macOS).
 
 ## Schnellstart
