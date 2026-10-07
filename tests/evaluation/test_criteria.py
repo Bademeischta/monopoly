@@ -157,3 +157,22 @@ def test_z5(fresh_home: Path) -> None:
     assert all(d["upper"] < 0 for d in a["placement_differences"].values())
     assert res["passed"]
     assert gates.evaluate_gates("G7")["G7"]["status"] == gates.PASS
+
+
+def test_report_contains_criteria_and_holm(fresh_home: Path) -> None:
+    from propertyrl.evaluation.report import generate_report
+
+    for k in range(3):
+        agent = f"sb3:/runs/mcr_official_2p_s{k}/best_select.zip"
+        _store(fresh_home, f"r{k}", "mcr_official_2p", "test", agent, {
+            "strong_a_v1": _duel(agent, "strong_a_v1", 300, 0.6),
+            "greedy_v1": _duel(agent, "greedy_v1", 50, 0.7),
+            "strong_b_v1": _duel(agent, "strong_b_v1", 50, 0.55),
+        })  # fmt: skip
+    path = generate_report("mcr_official_2p")
+    text = path.read_text(encoding="utf-8")
+    assert "### Z3" in text and "Z3 erfüllt: True" in text
+    assert "p (Holm)" in text
+    assert "(ungesehene Policy)" in text
+    assert "## Gate-Status G0–G8" in text
+    assert "SMOKE" not in text.split("## Gate-Status")[0]
