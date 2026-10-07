@@ -51,3 +51,16 @@ def test_engine_matches_exact_chain() -> None:
 def test_requires_movement_ruleset() -> None:
     with pytest.raises(ValueError):
         markov.simulate_rest_frequencies(rules(), board(), decks(), 10)
+
+
+def test_long_samples_span_several_games(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Samples larger than the per-game watchdog continue in fresh games instead of tripping it (P-16)."""
+    from propertyrl.engine import constants as C
+    from propertyrl.engine.markov import simulate_rest_frequencies
+    from propertyrl.infra.config import load_setup
+
+    monkeypatch.setattr(C, "WATCHDOG_GAME_DECISIONS", 6000)
+    rules, board, decks = load_setup("TEST_MOVEMENT_ONLY", 2)
+    freq, total = simulate_rest_frequencies(rules, board, decks, 20_000, seed=3)
+    assert total >= 20_000
+    assert abs(sum(freq) - 1.0) < 1e-9

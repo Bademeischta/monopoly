@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from propertyrl.engine import cards as K
 from propertyrl.engine import constants as C
+from propertyrl.engine.rng import u64
 
 if TYPE_CHECKING:
     from propertyrl.engine.board import Board
@@ -213,15 +214,26 @@ def simulate_rest_frequencies(
 
     if not ruleset.movement_only:
         raise ValueError("the Markov comparison requires the TEST_MOVEMENT_ONLY ruleset (A-11)")
-    eng = Engine.new(ruleset, board, decks, 2, seed, EngineOptions(log_events=False))
-    counts = eng.state.rest_counts
+    # The per-game watchdog (P-16) caps one game at WATCHDOG_GAME_DECISIONS decisions, so long samples are
+    # split into consecutive games with derived seeds; each game contributes about a million rest events,
+    # which makes the start-square transient negligible.
+    limit = C.WATCHDOG_GAME_DECISIONS - 1000
+    totals = [0] * C.N_SQUARES
+    segment = 0
     total = 0
     while total < moves:
-        d = eng.pending()
-        assert d is not None and d.legal is not None
-        eng.apply(d.legal.index(True))
-        total = sum(counts)
-    return [c / total for c in counts], total
+        game_seed = seed if segment == 0 else u64(seed, segment) & ((1 << 63) - 1)
+        eng = Engine.new(ruleset, board, decks, 2, game_seed, EngineOptions(log_events=False))
+        counts = eng.state.rest_counts
+        base = total
+        while total < moves and eng.state.decision_index < limit:
+            d = eng.pending()
+            assert d is not None and d.legal is not None
+            eng.apply(d.legal.index(True))
+            total = base + sum(counts)
+        totals = [a + b for a, b in zip(totals, counts, strict=True)]
+        segment += 1
+    return [c / total for c in totals], total
 
 
 def markov_check(
