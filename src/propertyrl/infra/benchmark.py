@@ -61,6 +61,37 @@ def bench_engine(seconds: float, log_events: bool) -> dict[str, Any]:
     }
 
 
+def bench_gym(seconds: float, log_events: bool) -> dict[str, Any]:
+    """Single Gym env (one learning seat) with masked random actions, with or without event logging."""
+    from propertyrl.env.single_agent import PropertySingleAgentEnv
+
+    cfg = EnvConfig(
+        opponents=OpponentConfig(mode="fixed", fixed=("strong_a_v1", "strong_b_v1"), epsilon=0.05),
+        log_events=log_events,
+    )
+    env = PropertySingleAgentEnv(cfg)
+    rng = np.random.default_rng(0)
+    proc = psutil.Process()
+    proc.cpu_percent(None)
+    env.reset(seed=11)
+    steps = 0
+    episodes = 0
+    start = time.perf_counter()
+    while time.perf_counter() - start < seconds:
+        _, _, term, trunc, _ = env.step(int(rng.choice(np.flatnonzero(env.action_masks()))))
+        steps += 1
+        if term or trunc:
+            episodes += 1
+            env.reset()
+    elapsed = time.perf_counter() - start
+    return {
+        "env_steps_per_s": steps / elapsed,
+        "episodes_per_s": episodes / elapsed,
+        "cpu_percent": proc.cpu_percent(None),
+        "rss_mb": proc.memory_info().rss / 2**20,
+    }
+
+
 def bench_vecenv(n_envs: int, vec_env: str, seconds: float) -> dict[str, Any]:
     """Masked random actions in a vectorised environment (strong opponents, no logging)."""
     from sb3_contrib.common.maskable.utils import get_action_masks
@@ -68,6 +99,7 @@ def bench_vecenv(n_envs: int, vec_env: str, seconds: float) -> dict[str, Any]:
     cfg = EnvConfig(opponents=OpponentConfig(mode="fixed", fixed=("strong_a_v1", "strong_b_v1"), epsilon=0.05))
     venv = make_vec_env(cfg, n_envs, 123, vec_env=vec_env)
     rng = np.random.default_rng(0)
+    psutil.cpu_percent(None)
     try:
         venv.reset()
         steps = 0
@@ -80,7 +112,13 @@ def bench_vecenv(n_envs: int, vec_env: str, seconds: float) -> dict[str, Any]:
         elapsed = time.perf_counter() - start
     finally:
         venv.close()
-    return {"n_envs": n_envs, "vec_env": vec_env, "env_steps_per_s": steps / elapsed}
+    return {
+        "n_envs": n_envs,
+        "vec_env": vec_env,
+        "env_steps_per_s": steps / elapsed,
+        "system_cpu_percent": psutil.cpu_percent(None),
+        "system_ram_used_mb": psutil.virtual_memory().used / 2**20,
+    }
 
 
 def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | None = None) -> dict[str, Any]:
@@ -89,7 +127,7 @@ def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | Non
     env_list = [n for n in N_ENVS_LIST if n <= (max_envs or 64)]
     if smoke:
         seconds = min(seconds, 1.5)
-        env_list = [1, 4]
+        env_list = [n for n in (1, 4) if n <= (max_envs or 64)]
     result: dict[str, Any] = {
         "cores": cores,
         "seconds_per_measurement": seconds,
@@ -97,6 +135,10 @@ def run_benchmark(seconds: float = 5.0, smoke: bool = False, max_envs: int | Non
         "engine": {
             "with_logging": bench_engine(seconds, True),
             "without_logging": bench_engine(seconds, False),
+        },
+        "gym_env": {
+            "with_logging": bench_gym(seconds, True),
+            "without_logging": bench_gym(seconds, False),
         },
         "gym_dummy": [bench_vecenv(n, "dummy", seconds) for n in env_list if n <= 16],
         "subproc": [bench_vecenv(n, "subproc", seconds) for n in env_list],

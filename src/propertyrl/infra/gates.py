@@ -45,21 +45,28 @@ def test_report_dir() -> Path:
 
 
 def junit_results(path: Path | None = None) -> dict[str, str]:
-    """Map 'file::test' -> 'passed'|'failed'|'skipped' from a JUnit XML report."""
-    p = path or test_report_dir() / "junit.xml"
-    if not p.exists():
-        return {}
+    """Map 'file::test' -> 'passed'|'failed'|'skipped' from JUnit XML reports.
+
+    Without ``path`` every ``junit*.xml`` in artifacts/test-reports is read in modification order, so a
+    later partial run (e.g. the gate-size mask test) overrides the entries of an earlier full run.
+    """
+    paths = (
+        [path] if path is not None else sorted(test_report_dir().glob("junit*.xml"), key=lambda p: p.stat().st_mtime)
+    )
     out: dict[str, str] = {}
-    for case in ET.parse(p).getroot().iter("testcase"):
-        cls = case.get("classname", "")
-        name = case.get("name", "")
-        status = "passed"
-        for child in case:
-            if child.tag in ("failure", "error"):
-                status = "failed"
-            elif child.tag == "skipped":
-                status = "skipped"
-        out[f"{cls}::{name}"] = status
+    for p in paths:
+        if not p.exists():
+            continue
+        for case in ET.parse(p).getroot().iter("testcase"):
+            cls = case.get("classname", "")
+            name = case.get("name", "")
+            status = "passed"
+            for child in case:
+                if child.tag in ("failure", "error"):
+                    status = "failed"
+                elif child.tag == "skipped":
+                    status = "skipped"
+            out[f"{cls}::{name}"] = status
     return out
 
 

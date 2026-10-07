@@ -89,7 +89,7 @@ print("Sieger:", engine.result().winner)
 |---|---|---|
 | G0 | `propertyrl gates --confirm-v-points` (nach Prüfung von V1–V6 in `docs/RULESPEC.md`) | Artefaktsatz und V-Punkte |
 | G1 | `pytest -n auto --cov=propertyrl --cov-branch`, `propertyrl fuzz --total-decisions 10000000 --rare-events`, `propertyrl markov-check --moves 10000000 --tolerance-pp 0.05` | Engine verifiziert |
-| G2 | `PROPERTYRL_MASK_STEPS=1000000 pytest tests/env`, `propertyrl benchmark` | Environments, Durchsatz |
+| G2 | `PROPERTYRL_MASK_STEPS=1000000 pytest tests/env/test_masks_leak.py --junitxml=artifacts/test-reports/junit_env.xml`, `propertyrl benchmark` | Environments, Durchsatz |
 | G3 | `propertyrl round-robin`, `propertyrl calibrate-horizon`, `propertyrl power --freeze 2p=1200,4p=250` | stärkste Baseline, Horizont, TEST-Größe |
 | G4 | `propertyrl sweep-gamma`, `propertyrl train --experiment mcr_official_2p --seed 1` | γ eingefroren, erster Agent |
 | G5 | `propertyrl pipeline --experiment mcr_official_2p` | MCR (Z3) auf TEST |

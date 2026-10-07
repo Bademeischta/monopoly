@@ -47,7 +47,7 @@ Gate-Größe erreicht ist. Fallback laut ROADMAP: Mehrfach-Asset-Angebote begren
 ## G2 – Environments (bis Woche 7)
 
 ```bash
-PROPERTYRL_MASK_STEPS=1000000 pytest tests/env -q      # Masken-Test in Gate-Größe (1 Mio. Schritte)
+PROPERTYRL_MASK_STEPS=1000000 pytest tests/env/test_masks_leak.py --junitxml=artifacts/test-reports/junit_env.xml   # 1 Mio. Schritte
 propertyrl benchmark                                    # JSON in artifacts/benchmarks/, Empfehlung für n_envs
 propertyrl gates --gate G2
 ```

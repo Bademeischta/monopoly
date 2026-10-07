@@ -142,3 +142,26 @@ def test_runtime_license_check_passes() -> None:
     assert "gymnasium" in pkgs and "stable-baselines3" in pkgs
     res = check_licenses()
     assert res["passed"], (res["violations"], res["unknown_not_allowlisted"])
+
+
+def test_benchmark_smoke(fresh_home: Path) -> None:
+    from propertyrl.infra.benchmark import run_benchmark
+
+    res = run_benchmark(seconds=0.3, smoke=True, max_envs=1)
+    assert {"with_logging", "without_logging"} <= set(res["engine"])
+    assert {"with_logging", "without_logging"} <= set(res["gym_env"])
+    assert res["engine"]["without_logging"]["games"] >= 1
+    assert res["recommendation"]["n_envs"] == 1
+    assert Path(res["path"]).exists()
+    assert gates.evaluate_gates("G2")["G2"]["criteria"][-1]["status"] == gates.PASS
+
+
+def test_gate_size_mask_run_merges_reports(fresh_home: Path) -> None:
+    _write_reports(fresh_home)
+    env_report = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
+<testcase classname="tests.env.test_masks_leak" name="test_masked_random_steps_never_illegal[steps1000000]"/>
+</testsuite></testsuites>"""
+    (fresh_home / "artifacts" / "test-reports" / "junit_env.xml").write_text(env_report, encoding="utf-8")
+    crit = next(c for c in gates.gate_g2() if c["name"].startswith("0 illegale"))
+    assert crit["status"] == f"{gates.PASS} (Gate-Größe)"
+    assert "1,000,000" in crit["detail"]

@@ -127,3 +127,12 @@ def test_resume_continues_interrupted_run(fresh_home: Path, monkeypatch: pytest.
     assert res["status"] == "completed"
     assert 1024 <= res["timesteps"] < 1024 + 2 * 512
     assert load_run_meta(runs[0])["status"] == "completed"
+    # diagnosis checklist (§9.6) on the finished run
+    from propertyrl.infra.diagnose import diagnose
+
+    diag = diagnose(runs[0], steps=300)
+    assert set(diag["checks"]) == {"reward_scale", "masks", "observation", "entropy", "explained_variance",
+                                   "duration_k", "opponent_mix", "valid_rows"}  # fmt: skip
+    assert diag["checks"]["masks"]["illegal"] == 0
+    assert diag["checks"]["observation"]["finite_and_in_unit_interval"]
+    assert (runs[0] / "diagnose.json").exists()
