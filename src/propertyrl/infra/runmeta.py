@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import platform
 import subprocess
@@ -11,10 +13,13 @@ from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any
 
+from propertyrl.engine.errors import ArtifactError
 from propertyrl.engine.hashing import sha256_bytes
 from propertyrl.infra.config import REPO_ROOT, load_seeds_config
-from propertyrl.infra.storage import read_json, record_run, runs_dir, write_json
+from propertyrl.infra.storage import query, read_json, record_run, runs_dir, write_json
 from propertyrl.versions import HEURISTIC_VERSIONS, all_versions
+
+log = logging.getLogger(__name__)
 
 PACKAGES = (
     "numpy",
@@ -96,10 +101,14 @@ def hardware() -> dict[str, Any]:
 
 
 def new_run_id(experiment: str, seed: int, smoke: bool) -> str:
-    """Unique run id."""
+    """Unique run id (a counter separates runs started by one process within the same second)."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     suffix = "_smoke" if smoke else ""
-    return f"{experiment}_s{seed}_{stamp}_{os.getpid()}{suffix}"
+    base = f"{experiment}_s{seed}_{stamp}_{os.getpid()}"
+    run_id, n = f"{base}{suffix}", 1
+    while (runs_dir() / run_id).exists():
+        run_id, n = f"{base}-{n}{suffix}", n + 1
+    return run_id
 
 
 def build_run_meta(
@@ -175,7 +184,14 @@ def finish_run_meta(meta: dict[str, Any], status: str, **updates: Any) -> None:
 
 
 def load_run_meta(path: Path) -> dict[str, Any]:
-    """Read run.json from a run directory (or the file itself)."""
+    """Read run.json from a run directory (or the file itself); a damaged file falls back to the database copy."""
     p = path / "run.json" if path.is_dir() else path
-    data: dict[str, Any] = read_json(p)
+    try:
+        data: dict[str, Any] = read_json(p)
+    except ArtifactError:
+        rows = query("SELECT run_json FROM runs WHERE run_id = ?", (p.parent.name,))
+        if not rows:
+            raise
+        log.warning("%s is damaged; using the copy in the database", p)
+        data = json.loads(rows[0][0])
     return data

@@ -78,7 +78,12 @@ class SeedLedgerError(PropertyRLError):
     """Seed pools or the TEST ledger were used in a forbidden way."""
 
 
+class ArtifactError(PropertyRLError):
+    """A stored artifact (JSON, Parquet, checkpoint) is unreadable, e.g. torn by a power-off."""
+
+
 __all__ = [
+    "ArtifactError",
     "ConfigError",
     "EngineWatchdogError",
     "IllegalActionError",

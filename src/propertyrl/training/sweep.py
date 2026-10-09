@@ -13,7 +13,7 @@ from propertyrl.evaluation.seeds import subset
 from propertyrl.infra.config import frozen_dir, load_experiment
 from propertyrl.infra.storage import write_json
 from propertyrl.training.smoke import smoke_settings
-from propertyrl.training.train import train
+from propertyrl.training.train import train_or_reuse
 
 log = logging.getLogger(__name__)
 SWEEP_OPPONENT = "roi_markov_v1"
@@ -37,7 +37,8 @@ def run_gamma_sweep(smoke: bool = False, experiment: str = "gamma_sweep") -> dic
     seeds = subset("SMOKE" if smoke else "SELECT", start=0, end=n_seeds)
     pilots = []
     for g in exp.sweep.gammas:
-        res = train("mcr_official_2p", exp.sweep.seed, smoke=smoke, gamma=g, timesteps=timesteps, run_tag=f"g{g}")
+        # Finished pilots are reused and interrupted ones resumed, so a re-run continues the sweep (A-140).
+        res = train_or_reuse("mcr_official_2p", exp.sweep.seed, smoke, gamma=g, timesteps=timesteps, run_tag=f"g{g}")
         agent = f"sb3:{res['best_select']}"
         specs = duplicate_specs(agent, [SWEEP_OPPONENT], seeds, "OFFICIAL_US_CLASSIC_2008", 2)
         records = run_games(specs, workers=1 if len(specs) <= 40 else default_workers())

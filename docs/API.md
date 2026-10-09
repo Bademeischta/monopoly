@@ -190,11 +190,12 @@ print({gate: info["status"] for gate, info in evaluate_gates().items()})
 | `markov-check --moves N --tolerance-pp X` | Markov-Abgleich |
 | `benchmark [--seconds S] [--smoke]` | Durchsatz und Empfehlung |
 | `calibrate-horizon`, `round-robin`, `power`, `plan` | G3-Vorbereitung und Planung |
-| `train --experiment E [--seed S] [--extended]` / `--resume runs/<id>` | Training |
+| `train --experiment E [--seed S] [--extended] [--new]` / `--resume runs/<id>` | Training (fertige Läufe gleicher Konfiguration werden wiederverwendet, abgebrochene fortgesetzt; `--new` erzwingt einen neuen Lauf) |
 | `sweep-gamma`, `selfplay` | γ-Sweep, Self-Play |
-| `evaluate --agent A --split select\|test\|smoke [--opponents ...]` | Auswertung |
+| `evaluate --agent A --split select\|test\|smoke [--opponents ...] [--again]` | Auswertung (eine vorhandene gleiche Auswertung wird übernommen; `--again` wertet neu aus) |
 | `kingmaking`, `report --experiment E`, `gates`, `diagnose --run R`, `license-check`, `repro --run R` | Analyse und Abschluss |
 | `pipeline --experiment E` / `--smoke-all` | Pipelines |
+| `doctor [--clean-temp]` | Zustand nach Abbruch oder Stromausfall prüfen, nächsten Runbook-Schritt nennen (A-142) |
 
 Jeder Trainings-, Evaluations- und Analysebefehl akzeptiert `--smoke`.
 

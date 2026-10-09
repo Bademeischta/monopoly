@@ -5,17 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from propertyrl.engine.hashing import sha256_hex
 from propertyrl.evaluation import ledger
 from propertyrl.evaluation.duplicate import duplicate_specs
 from propertyrl.evaluation.evaluate import evaluate_agent, resolve_opponents, strongest_baseline
 from propertyrl.evaluation.harness import run_games
 from propertyrl.evaluation.seeds import subset
-from propertyrl.infra.config import list_experiments, load_experiment
+from propertyrl.infra.config import list_experiments, load_experiment, read_frozen
 from propertyrl.infra.runmeta import load_run_meta
 from propertyrl.infra.storage import artifacts_dir, query, read_json, sub_artifacts, write_json
 
@@ -48,10 +50,16 @@ def selfplay_opponents(result: dict[str, Any], smoke: bool, max_snapshots: int =
     start = meta.get("init_from")
     mcr = Path(start) if start else find_checkpoint("mcr_official_2p", None, smoke)
     out = [f"sb3:{mcr}"] if mcr is not None and Path(mcr).exists() else []
+    from propertyrl.training.selfplay import SnapshotPool
+
     state = read_json(rdir / "training_state.json") if (rdir / "training_state.json").exists() else {}
     pool = [p for p in (state.get("pool") or {}).get("paths", []) if Path(p).exists()]
     champion = str(state.get("champion") or "").split(":", 1)[-1]
-    older = pool[: pool.index(champion)] if champion in pool else []
+    meta_file = Path(champion).with_suffix(".json")
+    champion_step = int(read_json(meta_file)["step"]) if champion and meta_file.exists() else None
+    # Snapshots older than the champion (pool order is chronological); the step also works when the champion
+    # left the pool by thinning or is the champion.zip copy after a resume.
+    older = [p for p in pool if champion_step is not None and SnapshotPool._step(p) < champion_step]
     if len(older) > max_snapshots:
         step = len(older) / max_snapshots
         older = [older[int(i * step)] for i in range(max_snapshots)]
@@ -128,10 +136,19 @@ def kingmaking_for(experiment: str, agent: str | None, smoke: bool) -> dict[str,
 
         seeds = subset("TEST" if agent else "SELECT", start=0, end=min(params.games, test_size(4)))
     first = agent or "strong_a_v1"
+    a_hash = ledger.agent_hash(first)
+    reuse_key = sha256_hex({"agent_hash": a_hash, "seeds": list(seeds), "params": asdict(params),
+                            "horizon": read_frozen("horizon")})  # fmt: skip
+    prefix = "kingmaking_" + ("smoke_" if smoke else "") + experiment + "_"
+    for old in sorted(sub_artifacts("kingmaking").glob(f"{prefix}*.json"), reverse=True):
+        stored = read_json(old)
+        if stored.get("reuse_key") == reuse_key and stored.get("experiment") == experiment:
+            log.info("reusing kingmaking result %s", old.name)  # a re-run of the pipeline (A-136)
+            return dict(stored)
     specs = duplicate_specs(first, lineup, seeds, "OFFICIAL_US_CLASSIC_2008", 4)[::4][: params.games]
     result = run_kingmaking(specs, params)
-    tag = ("smoke_" if smoke else "") + experiment + "_" + time.strftime("%Y%m%d-%H%M%S")
-    write_json(sub_artifacts("kingmaking") / f"kingmaking_{tag}.json", result)
+    result.update({"experiment": experiment, "agent": first, "agent_hash": a_hash, "reuse_key": reuse_key})
+    write_json(sub_artifacts("kingmaking") / f"{prefix}{time.strftime('%Y%m%d-%H%M%S')}.json", result)
     return result
 
 

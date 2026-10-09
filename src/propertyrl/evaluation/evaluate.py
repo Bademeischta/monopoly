@@ -17,8 +17,8 @@ from propertyrl.evaluation.duplicate import duplicate_specs, per_seed_scores, su
 from propertyrl.evaluation.harness import run_games
 from propertyrl.evaluation.metrics import agent_metrics, seat_win_rates
 from propertyrl.evaluation.seeds import subset
-from propertyrl.infra.config import SMOKE_LABEL, read_frozen
-from propertyrl.infra.storage import record_eval_summary, sub_artifacts, write_json
+from propertyrl.infra.config import SMOKE_LABEL, read_frozen, require_frozen
+from propertyrl.infra.storage import atomic_path, connect, record_eval_summary, sub_artifacts, write_json
 
 log = logging.getLogger(__name__)
 SPLITS = ("select", "test", "smoke")
@@ -86,6 +86,39 @@ def records_frame(records: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def stored_evaluation(
+    agent: str,
+    opponents: list[str],
+    split: str,
+    n_seeds: int | None = None,
+    ruleset_id: str = "OFFICIAL_US_CLASSIC_2008",
+    n_players: int = 2,
+    experiment: str = "adhoc",
+    smoke: bool = False,
+) -> dict[str, Any] | None:
+    """Newest stored evaluation with the same agent, opponents, split, seed count and ruleset, if any.
+
+    Lets an interrupted command sequence be re-run without repeating finished evaluations (A-140).
+    """
+    from propertyrl.infra.storage import query
+
+    agent = resolve_agent(agent)
+    opps = resolve_opponents(opponents)
+    keys = opps if n_players == 2 else ["+".join(opps[: n_players - 1])]
+    n = len(seeds_for(split, n_seeds, n_players))
+    rows = query(
+        "SELECT summary_json FROM eval_summaries WHERE agent_hash = ? AND experiment = ? AND split = ? AND smoke = ? "
+        "ORDER BY created DESC",
+        (ledger.agent_hash(agent), experiment, split, int(smoke or split == "smoke")),
+    )
+    for (raw,) in rows:
+        summary: dict[str, Any] = json.loads(raw)
+        same = (list(summary["opponents"]), summary["n_seeds"], summary["ruleset_id"], summary["n_players"])
+        if same == (keys, n, ruleset_id, n_players):
+            return summary
+    return None
+
+
 def evaluate_agent(
     agent: str,
     opponents: list[str],
@@ -105,6 +138,9 @@ def evaluate_agent(
     if smoke and split == "test":
         raise ConfigError("smoke runs never use the TEST split")
     agent = resolve_agent(agent)
+    if split == "test":
+        # A TEST evaluation cannot be repeated, so it must run with the frozen G3 artifacts (A-141).
+        require_frozen(["horizon", "strongest_baseline"], "a TEST evaluation")
     opponents = resolve_opponents(opponents)
     a_hash = ledger.agent_hash(agent)
     if split == "test" and not force_retest:
@@ -123,7 +159,8 @@ def evaluate_agent(
     eval_id = f"{split}_{experiment}_{a_hash[:10]}_{time.strftime('%Y%m%d-%H%M%S')}"
     out_dir = sub_artifacts("eval", eval_id)
     all_records = [r for recs in groups.values() for r in recs]
-    records_frame(all_records).to_parquet(out_dir / "games.parquet", index=False)
+    with atomic_path(out_dir / "games.parquet") as tmp:
+        records_frame(all_records).to_parquet(tmp, index=False)
     summary: dict[str, Any] = {
         "eval_id": eval_id,
         "agent": agent,
@@ -148,10 +185,14 @@ def evaluate_agent(
             "per_seed": {str(k): v for k, v in per_seed_scores(recs, agent).items()},
         }
     write_json(out_dir / "summary.json", summary)
-    record_eval_summary(
-        eval_id, a_hash, experiment, split, ruleset_id, len(seeds), len(all_records), list(groups), summary,
-        out_dir, bool(summary["smoke"]),
-    )  # fmt: skip
-    if split == "test":
-        ledger.record(a_hash, experiment, ruleset_id, len(seeds), eval_id, force=force_retest)
+    # The games are durably on disk before the database learns about them, and the summary row and the TEST
+    # ledger row form one transaction: an interruption can neither use up the TEST evaluation without stored
+    # games nor leave a stored evaluation without its ledger entry (A-139).
+    with connect() as conn:
+        if split == "test":
+            ledger.record(a_hash, experiment, ruleset_id, len(seeds), eval_id, force=force_retest, conn=conn)
+        record_eval_summary(
+            eval_id, a_hash, experiment, split, ruleset_id, len(seeds), len(all_records), list(groups), summary,
+            out_dir, bool(summary["smoke"]), conn=conn,
+        )  # fmt: skip
     return summary

@@ -70,6 +70,7 @@ propertyrl play --seed 1                          # Textspiel strong_a_v1 gegen 
 propertyrl replay --log artifacts/logs/play_OFFICIAL_US_CLASSIC_2008_2p_seed1.jsonl   # Hash-Prüfung
 PROPERTYRL_HOME=$HOME/prl_smoke propertyrl pipeline --smoke-all   # Kleinformat, getrennt von echten Ergebnissen
 propertyrl gates                                  # Gate-Status G0–G8
+propertyrl doctor                                 # Zustand nach Abbruch/Stromausfall, nächster Schritt
 pytest -n auto -m "not slow"                      # Testsuite ohne die 30-min-Smoke-Pipeline
 ```
 

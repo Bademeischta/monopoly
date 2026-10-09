@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import functools
+import logging
 from pathlib import Path
 
 from propertyrl.engine import constants as C
-from propertyrl.engine.errors import SeedLedgerError
+from propertyrl.engine.errors import ArtifactError, SeedLedgerError
 from propertyrl.engine.hashing import sha256_hex
 from propertyrl.engine.rng import u64
 from propertyrl.infra.config import load_seeds_config
 from propertyrl.infra.storage import read_json, sub_artifacts, write_json
 
+log = logging.getLogger(__name__)
 SEED_MASK = (1 << 63) - 1
 POOL_ORDER = ("SELECT", "TEST", "SMOKE")
 
@@ -79,18 +81,36 @@ def _load_cached(directory: str) -> dict[str, list[int]]:
         pools = generate_pools()
         write_pools(pools)
         return pools
-    checks = read_json(checks_path)
-    pools = {}
-    for name in POOL_ORDER:
-        seeds = [int(x) for x in read_json(d / f"{name.lower()}.json")]
-        if sha256_hex(seeds) != checks.get(name):
-            raise SeedLedgerError(f"checksum mismatch for seed pool {name} in {d}")
-        pools[name] = seeds
     expected = generate_pools()
+    try:
+        checks = read_json(checks_path)
+        pools = {name: [int(x) for x in read_json(d / f"{name.lower()}.json")] for name in POOL_ORDER}
+    except (ArtifactError, FileNotFoundError, TypeError, ValueError) as err:
+        return _rebuild_pools(d, expected, err)
+    for name in POOL_ORDER:
+        if sha256_hex(pools[name]) != checks.get(name):
+            raise SeedLedgerError(f"checksum mismatch for seed pool {name} in {d}")
     if pools != expected:
         raise SeedLedgerError("stored seed pools differ from the configured master seed")
     check_disjoint(pools)
     return pools
+
+
+def _rebuild_pools(d: Path, expected: dict[str, list[int]], err: Exception) -> dict[str, list[int]]:
+    """Rewrite unreadable pool files (e.g. torn by a power-off) from the master seed (A-139).
+
+    The pools are a pure function of the master seed (§8.1); stored checksums that are still readable must
+    match the regenerated pools, so a changed master seed is never silently accepted.
+    """
+    log.warning("seed pool files in %s are unreadable (%s); regenerating them from the master seed", d, err)
+    try:
+        stored = read_json(d / "checksums.json")
+    except (ArtifactError, FileNotFoundError):
+        stored = None
+    if isinstance(stored, dict) and stored != {name: sha256_hex(s) for name, s in expected.items()}:
+        raise SeedLedgerError("stored seed pools differ from the configured master seed") from err
+    write_pools(expected)
+    return expected
 
 
 def load_pools() -> dict[str, list[int]]:

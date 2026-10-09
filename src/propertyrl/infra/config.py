@@ -7,7 +7,6 @@ builds the immutable engine objects.
 from __future__ import annotations
 
 import functools
-import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -320,20 +319,46 @@ def frozen_dir() -> Path:
     return artifacts_dir() / "frozen"
 
 
+#: Command that (re)creates each frozen artifact (runbook order, docs/TRAINING_GUIDE.md).
+FROZEN_SOURCES = {
+    "v_points_confirmed": "propertyrl gates --confirm-v-points",
+    "strongest_baseline": "propertyrl round-robin",
+    "horizon": "propertyrl calibrate-horizon",
+    "test_size": "propertyrl power --freeze 2p=1200,4p=250",
+    "gamma": "propertyrl sweep-gamma",
+}
+
+
+def require_frozen(names: list[str], purpose: str) -> None:
+    """Refuse to start ``purpose`` while an earlier runbook step has not frozen its artifact."""
+    missing = [n for n in names if read_frozen(n) is None]
+    if missing:
+        steps = "; ".join(f"artifacts/frozen/{n}.json <- {FROZEN_SOURCES[n]}" for n in missing)
+        raise ConfigError(f"{purpose} needs the frozen artifacts of the earlier runbook steps first: {steps}")
+
+
 def read_frozen(name: str) -> dict[str, Any] | None:
-    """Read artifacts/frozen/<name>.json if present."""
+    """Read artifacts/frozen/<name>.json if present; a damaged file raises ArtifactError with the repair command."""
+    from propertyrl.engine.errors import ArtifactError
+    from propertyrl.infra.storage import read_json
+
     path = frozen_dir() / f"{name}.json"
     if not path.exists():
         return None
-    with path.open("r", encoding="utf-8") as fh:
-        data: dict[str, Any] = json.load(fh)
+    try:
+        data: dict[str, Any] = read_json(path)
+    except ArtifactError as err:
+        source = FROZEN_SOURCES.get(name.removesuffix("_smoke"), "the command that wrote it")
+        raise ArtifactError(f"{err.raw_message}; delete the file and run '{source}' again",
+                            details=err.details) from err  # fmt: skip
     return data
 
 
 def load_ruleset(ruleset_id: str, use_frozen_horizon: bool = True, **overrides: Any) -> Ruleset:
     """Load a ruleset; the calibrated horizon (artifacts/frozen/horizon.json) is applied when present."""
     rules = _load_ruleset_file(ruleset_id)
-    if use_frozen_horizon and not rules.movement_only:
+    explicit = "safety_horizon_rounds" in overrides and (not rules.short_game or "max_rounds" in overrides)
+    if use_frozen_horizon and not rules.movement_only and not explicit:
         frozen = read_frozen("horizon")
         if frozen:
             key = "horizon_4p" if overrides.get("_n_players", 2) > 2 else "horizon_2p"

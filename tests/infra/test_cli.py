@@ -14,7 +14,7 @@ from propertyrl.infra.storage import read_json
 COMMANDS = (
     "play", "replay", "fuzz", "markov-check", "benchmark", "calibrate-horizon", "round-robin", "power", "plan",
     "train", "sweep-gamma", "selfplay", "evaluate", "kingmaking", "report", "gates", "diagnose", "license-check",
-    "repro", "pipeline",
+    "repro", "pipeline", "doctor",
 )  # fmt: skip
 
 

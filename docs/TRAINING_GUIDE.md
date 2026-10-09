@@ -24,7 +24,7 @@ Gesamt etwa 140 h reine Rechenzeit, also rund 6 Tage ohne Pause, Schritte strikt
 ## Grundregeln für die Langläufe
 
 1. **Lange Befehle nie im normalen Terminal.** Linux/macOS/WSL2: `tmux new -s prl` (abkoppeln mit
-   `Strg-b d`, zurück mit `tmux attach -t prl`) oder `nohup <befehl> > logs/<name>.log 2>&1 &`. Ruhezustand
+   `Strg-b d`, zurück mit `tmux attach -t prl`) oder `nohup <befehl> >> logs/<name>.log 2>&1 &`. Ruhezustand
    abschalten: macOS `caffeinate -is <befehl>`, Linux-Desktop `systemd-inhibit --what=idle:sleep <befehl>`,
    Windows Energieoptionen „Nie“ und Updates pausieren. Natives Windows (ohne WSL) ist in der CI geprüft;
    alle Befehle in PowerShell-Form stehen im Anhang „Windows (PowerShell, ohne WSL)“ am Ende.
@@ -32,10 +32,16 @@ Gesamt etwa 140 h reine Rechenzeit, also rund 6 Tage ohne Pause, Schritte strikt
    `cd propertyrl; .venv\Scripts\Activate.ps1`). `echo $PROPERTYRL_HOME` muss leer sein, denn alle echten
    Ergebnisse gehören ins Repository (`artifacts/`, `runs/`, `reports/`).
 3. **Smoke nur getrennt:** `--smoke` und `--smoke-all` ausschließlich mit `PROPERTYRL_HOME=$HOME/prl_smoke`.
-4. **Abbrechen nur mit Strg-C** (nie Fenster schließen oder `kill -9`). Nach einem Abbruch denselben
-   `propertyrl pipeline …`-Befehl erneut starten: Fertige Läufe mit gleicher Konfiguration werden
-   wiederverwendet, unterbrochene fortgesetzt und vorhandene Auswertungen nicht wiederholt (A-136). Ein
-   einzelner `propertyrl train`-Lauf wird mit `propertyrl train --resume runs/<run_id>` fortgesetzt.
+4. **Abbrechen nur mit Strg-C** (nie Fenster schließen oder `kill -9`). Nach jedem Abbruch, Absturz
+   oder Stromausfall zuerst `propertyrl doctor` ausführen. Er prüft eingefrorene Dateien, Seeds,
+   Datenbank, Läufe und Auswertungen, zeigt Schäden mit Reparaturbefehl und nennt den nächsten Schritt
+   (A-142). Danach denselben Befehl erneut starten. `train`, `selfplay`, `sweep-gamma` und `pipeline`
+   verwenden den neuesten Lauf gleicher Konfiguration wieder, wenn er fertig ist, und setzen ihn sonst am
+   neuesten intakten Checkpoint fort. `pipeline` und `evaluate` übernehmen eine vorhandene gleiche
+   Auswertung (A-136, A-140). Alle Ergebnisdateien werden atomar geschrieben, ein Stromausfall hinterlässt
+   keine halben Ergebnisdateien (A-139; Logdateien ausgenommen). `propertyrl train --new` erzwingt einen neuen
+   Lauf. Wird so ein Lauf unterbrochen, setzt ihn derselbe Befehl **ohne** `--new` fort.
+   `propertyrl train --resume runs/<run_id>` setzt einen bestimmten Lauf fort.
 5. **Fortschritt:** `tensorboard --logdir runs` (zweites Terminal, dann http://localhost:6006);
    `ls runs/<run_id>/checkpoints` zeigt den Stand bis 10.000.000 Schritte. Ausgaben mitschreiben:
    `… 2>&1 | tee -a logs/<schritt>.log` (PowerShell: `| Tee-Object -FilePath logs\<schritt>.log -Append`).
@@ -67,7 +73,7 @@ Windows (PowerShell, ohne WSL): siehe Anhang am Ende dieses Dokuments.
 ```bash
 propertyrl play --seed 1
 pytest -n auto -m "not slow"
-PROPERTYRL_HOME=$HOME/prl_smoke propertyrl pipeline --smoke-all 2>&1 | tee logs/smoke.log
+PROPERTYRL_HOME=$HOME/prl_smoke propertyrl pipeline --smoke-all 2>&1 | tee -a logs/smoke.log
 PROPERTYRL_HOME=$HOME/prl_smoke propertyrl gates
 ```
 
@@ -133,16 +139,20 @@ propertyrl gates --gate G3
   `strong_a_v1` als einzige Referenz) und als Abweichung notieren. `strong_b_v1` bleibt Gegner in den
   Auswertungen (Z4 braucht ihn).
 - `calibrate-horizon` endet mit Exit-Code 1, wenn die 2P-Truncation ≥ 5 % ist (kein Absturz). G3 wird an
-  2P gemessen (A-135); eine hohe 4P-Truncation ist ein erwarteter Befund (Patt-Spiele ohne Monopole) und
-  betrifft erst G7.
-- Nach diesem Schritt `round-robin` und `calibrate-horizon` nicht mehr wiederholen: Training und
-  Auswertung lesen die eingefrorenen Dateien.
+  2P gemessen (A-135). Eine hohe 4P-Truncation ist ein erwarteter Befund (Patt-Spiele ohne Monopole) und
+  betrifft erst G7. Auch bei Exit-Code 1 ist H nach der festen Formel eingefroren. Formel und Grenze
+  werden nicht angepasst: G3 bleibt FAIL, der Bericht führt es als Negativergebnis, und es geht mit
+  Schritt 6 weiter (A-143).
+- Beide Befehle sind deterministisch, und der Round-Robin ignoriert `horizon.json` (A-141). Eine
+  Wiederholung, etwa nach einem Stromausfall, liefert also dasselbe Ergebnis. Nötig ist sie nur für
+  Dateien, die `propertyrl doctor` als fehlend oder beschädigt meldet. Training und Auswertung lesen die
+  eingefrorenen Dateien.
 
 ## Schritt 6 – G4: γ-Sweep und erster Agent
 
 ```bash
-propertyrl sweep-gamma 2>&1 | tee logs/sweep.log                        # 3 Piloten à 2 Mio. Schritte
-propertyrl train --experiment mcr_official_2p --seed 1 2>&1 | tee logs/mcr_s1.log
+propertyrl sweep-gamma 2>&1 | tee -a logs/sweep.log                        # 3 Piloten à 2 Mio. Schritte
+propertyrl train --experiment mcr_official_2p --seed 1 2>&1 | tee -a logs/mcr_s1.log
 propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p
 propertyrl gates --gate G4
 ```
@@ -153,12 +163,15 @@ von `evaluate` nennt unter `agent` den verwendeten Checkpoint (`runs/mcr_officia
 
 **Stopp-Regel:** Nur bei G4 PASS weiter. Bei FAIL: `propertyrl diagnose --run runs/<run_id>` (Reward-Skala,
 Masken, Entropie, explained_variance, Dauerverteilung, Gegnermix), Ursache beheben, Schritt 6 wiederholen.
-Bis dahin keine TEST-Auswertung.
+Ohne Änderung in `configs/` ist dafür `propertyrl train --experiment mcr_official_2p --seed 1 --new` nötig,
+sonst wird der fertige alte Lauf wiederverwendet. Wird dieser neue Lauf unterbrochen, ihn mit demselben Befehl
+ohne `--new` fortsetzen. Die SELECT-Auswertung danach mit `--again` wiederholen, falls sich nur der Code geändert
+hat. Bis dahin keine TEST-Auswertung; `propertyrl doctor` beachtet diese Stopp-Regel.
 
 ## Schritt 7 – G5: MCR auf TEST
 
 ```bash
-propertyrl pipeline --experiment mcr_official_2p 2>&1 | tee logs/mcr_pipeline.log
+propertyrl pipeline --experiment mcr_official_2p 2>&1 | tee -a logs/mcr_pipeline.log
 propertyrl gates --gate G5
 ```
 
@@ -188,7 +201,7 @@ PowerShell: `foreach ($e in 'ablation_a0_terminal','ablation_a2_purdue','ablatio
 ## Schritt 9 – G6: Self-Play
 
 ```bash
-propertyrl pipeline --experiment selfplay_official_2p 2>&1 | tee logs/selfplay.log
+propertyrl pipeline --experiment selfplay_official_2p 2>&1 | tee -a logs/selfplay.log
 propertyrl gates --gate G6
 ```
 
@@ -200,7 +213,7 @@ analysieren. G8 hängt nicht von G6 ab.
 ## Schritt 10 – G7: 4 Spieler (Stretch)
 
 ```bash
-propertyrl pipeline --experiment fourp_official 2>&1 | tee logs/fourp.log
+propertyrl pipeline --experiment fourp_official 2>&1 | tee -a logs/fourp.log
 propertyrl gates --gate G7
 # nur bei FAIL:
 propertyrl pipeline --experiment fourp_single_seat_fallback && propertyrl gates --gate G7
@@ -243,8 +256,10 @@ done
 
 | Symptom | Maßnahme |
 |---|---|
-| Terminal geschlossen, Strom weg, Abbruch | denselben `pipeline`-Befehl neu starten bzw. `propertyrl train --resume runs/<id>` |
-| `SeedLedgerError` | Agent wurde schon auf TEST ausgewertet – nicht erzwingen; `--force-retest` nur bewusst, wird im Bericht markiert |
+| Terminal geschlossen, Strom weg, Absturz, Abbruch | `propertyrl doctor`, dann denselben Befehl neu starten (Training wird am neuesten intakten Checkpoint fortgesetzt, fertige Läufe und Auswertungen werden übernommen) |
+| `ArtifactError … is damaged or incomplete` | `propertyrl doctor` nennt die Datei und den Befehl, der sie neu erzeugt |
+| `… needs the frozen artifacts of the earlier runbook steps first` | Der genannte frühere Schritt fehlt; ihn zuerst ausführen |
+| `SeedLedgerError` | Agent wurde schon auf TEST ausgewertet – nicht erzwingen; `--force-retest` nur bewusst, wird im TEST-Ledger und im Bericht markiert |
 | `EngineWatchdogError` | Log in `artifacts/errors/` sichern, Fehler melden; betroffenen Lauf mit `--resume` fortsetzen |
 | Gate FAIL | Fallbacks in `docs/ROADMAP.md`, Diagnose mit `propertyrl diagnose --run runs/<id>` |
 | Lauf stoppt nach 12 h | Budget-Wächter: `budget_hours` in `configs/training/ppo_default.yaml` prüfen |
@@ -286,9 +301,10 @@ Remove-Item Env:PROPERTYRL_HOME -ErrorAction SilentlyContinue
 
 Lange Befehle über `cmd /c` mit Umleitung in eine Logdatei starten (funktioniert in PowerShell 5.1 und 7
 gleich) und in einem zweiten Fenster mitlesen. Das erste Fenster nicht schließen; abbrechen nur mit Strg-C.
+`>>` hängt an die Logdatei an, damit ein erneuter Start das Log des abgebrochenen Versuchs nicht löscht.
 
 ```powershell
-cmd /c "propertyrl pipeline --experiment mcr_official_2p > logs\mcr_pipeline.log 2>&1"
+cmd /c "propertyrl pipeline --experiment mcr_official_2p >> logs\mcr_pipeline.log 2>&1"
 "Exit-Code: $LASTEXITCODE"
 ```
 
@@ -297,6 +313,20 @@ Zweites Fenster (mitlesen):
 ```powershell
 Get-Content $HOME\propertyrl\logs\mcr_pipeline.log -Wait -Tail 30 -Encoding UTF8
 ```
+
+### Nach Abbruch, Absturz oder Stromausfall
+
+```powershell
+cd $HOME\propertyrl
+.\.venv\Scripts\Activate.ps1
+propertyrl doctor
+```
+
+`doctor` meldet beschädigte oder fehlende Dateien mit dem Befehl, der sie neu erzeugt, sowie
+abgebrochene Läufe und deren Fortsetzungsbefehl, und nennt unter „Nächster Schritt“ den weiteren Weg.
+Danach den abgebrochenen Befehl unverändert erneut starten; fertige Teile werden übernommen.
+`propertyrl doctor --clean-temp` löscht harmlose Temporärdateien abgebrochener Schreibvorgänge; nur
+ausführen, wenn gerade kein anderer `propertyrl`-Befehl läuft.
 
 ### Schritt 1 – Installation
 
@@ -320,7 +350,7 @@ New-Item -ItemType Directory -Force logs | Out-Null
 propertyrl play --seed 1
 pytest -n auto -m "not slow"
 $env:PROPERTYRL_HOME = "$HOME\prl_smoke"
-cmd /c "propertyrl pipeline --smoke-all > logs\smoke.log 2>&1"
+cmd /c "propertyrl pipeline --smoke-all >> logs\smoke.log 2>&1"
 "Exit-Code: $LASTEXITCODE"
 Get-Content "$HOME\prl_smoke\artifacts\pipeline\smoke_all.json" -Encoding UTF8 | ConvertFrom-Json | Select-Object test_ledger_unchanged, repro_match
 propertyrl gates
@@ -340,7 +370,7 @@ propertyrl gates --confirm-v-points
 
 ```powershell
 pytest -n auto -m "not slow" --cov=propertyrl --cov-branch --cov-report=xml:artifacts/test-reports/coverage.xml --junitxml=artifacts/test-reports/junit.xml
-cmd /c "propertyrl fuzz --total-decisions 10000000 --rare-events --rare-decisions 1000000 > logs\fuzz.log 2>&1"
+cmd /c "propertyrl fuzz --total-decisions 10000000 --rare-events --rare-decisions 1000000 >> logs\fuzz.log 2>&1"
 propertyrl markov-check --moves 10000000 --tolerance-pp 0.05
 $env:PROPERTYRL_MASK_STEPS = "1000000"
 pytest tests/env/test_masks_leak.py --junitxml=artifacts/test-reports/junit_env.xml
@@ -362,8 +392,8 @@ propertyrl gates --gate G3
 ### Schritt 6 – G4
 
 ```powershell
-cmd /c "propertyrl sweep-gamma > logs\sweep.log 2>&1"
-cmd /c "propertyrl train --experiment mcr_official_2p --seed 1 > logs\mcr_s1.log 2>&1"
+cmd /c "propertyrl sweep-gamma >> logs\sweep.log 2>&1"
+cmd /c "propertyrl train --experiment mcr_official_2p --seed 1 >> logs\mcr_s1.log 2>&1"
 propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment mcr_official_2p
 propertyrl gates --gate G4
 ```
@@ -371,7 +401,7 @@ propertyrl gates --gate G4
 ### Schritt 7 – G5
 
 ```powershell
-cmd /c "propertyrl pipeline --experiment mcr_official_2p > logs\mcr_pipeline.log 2>&1"
+cmd /c "propertyrl pipeline --experiment mcr_official_2p >> logs\mcr_pipeline.log 2>&1"
 propertyrl gates --gate G5
 ```
 
@@ -380,7 +410,7 @@ propertyrl gates --gate G5
 ```powershell
 $ablations = "ablation_a0_terminal", "ablation_a2_purdue", "ablation_n4_buy_delegated", "ablation_no_trade", "ablation_shared_delegation", "ablation_no_smdp", "research_shortgame_2p"
 foreach ($e in $ablations) {
-    cmd /c "propertyrl pipeline --experiment $e > logs\p1_$e.log 2>&1"
+    cmd /c "propertyrl pipeline --experiment $e >> logs\p1_$e.log 2>&1"
     if ($LASTEXITCODE -ne 0) { Write-Host "Fehler in $e (Exit-Code $LASTEXITCODE), siehe logs\p1_$e.log"; break }
 }
 ```
@@ -388,20 +418,20 @@ foreach ($e in $ablations) {
 ### Schritt 9 – G6
 
 ```powershell
-cmd /c "propertyrl pipeline --experiment selfplay_official_2p > logs\selfplay.log 2>&1"
+cmd /c "propertyrl pipeline --experiment selfplay_official_2p >> logs\selfplay.log 2>&1"
 propertyrl gates --gate G6
 ```
 
 ### Schritt 10 – G7
 
 ```powershell
-cmd /c "propertyrl pipeline --experiment fourp_official > logs\fourp.log 2>&1"
+cmd /c "propertyrl pipeline --experiment fourp_official >> logs\fourp.log 2>&1"
 propertyrl gates --gate G7
 ```
 
-Nur bei FAIL: `cmd /c "propertyrl pipeline --experiment fourp_single_seat_fallback > logs\fourp_fallback.log 2>&1"`,
+Nur bei FAIL: `cmd /c "propertyrl pipeline --experiment fourp_single_seat_fallback >> logs\fourp_fallback.log 2>&1"`,
 danach `propertyrl gates --gate G7`. Ablation A3: `cmd /c "propertyrl pipeline --experiment
-ablation_a3_kingmaking_4p > logs\a3.log 2>&1"`.
+ablation_a3_kingmaking_4p >> logs\a3.log 2>&1"`.
 
 ### Schritt 11 – G8
 

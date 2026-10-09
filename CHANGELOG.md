@@ -3,6 +3,41 @@
 Alle nennenswerten Änderungen an PropertyRL. Format angelehnt an „Keep a Changelog“, Versionierung nach
 SemVer.
 
+## Unreleased
+
+### Hinzugefügt
+- `propertyrl doctor [--clean-temp]`: Zustand nach Abbruch, Absturz oder Stromausfall prüfen und den
+  nächsten Runbook-Schritt nennen (A-142).
+- `propertyrl train --new` erzwingt einen neuen Lauf. Ohne die Option übernimmt `train` fertige Läufe
+  gleicher Konfiguration und setzt abgebrochene fort.
+- `propertyrl evaluate --again`: Ohne die Option wird eine gespeicherte gleiche Auswertung übernommen.
+
+### Geändert
+- Alle Ergebnisdateien werden atomar und dauerhaft geschrieben (A-139).
+- TEST-Auswertung: Die Spiele werden vor der Datenbank gespeichert. Auswertungs- und Ledger-Zeile bilden
+  eine Transaktion.
+- Fortsetzen nach Abbruch: Der Fortsetzungspunkt ist der neueste intakte Checkpoint; jede Fortsetzung
+  wird protokolliert, und das Budget gilt über alle Abschnitte. Fortsetzen wirkt auch für `selfplay` und
+  die Piloten von `sweep-gamma` (A-140).
+- Der Round-Robin spielt unabhängig von `horizon.json` mit dem Platzhalter-Horizont. Training und
+  TEST-Auswertung verlangen die eingefrorenen Artefakte der früheren Schritte (A-141).
+- Logs der Anleitung werden angehängt statt überschrieben.
+- Wiederholte 4P-Pipelines übernehmen das vorhandene Kingmaking-Ergebnis.
+
+### Behoben
+- Ein durch eine Ausnahme abgebrochener Lauf galt als „completed“ und hätte wiederverwendet und auf TEST
+  ausgewertet werden können. Er heißt jetzt `failed` und wird fortgesetzt (A-140).
+- Unlesbare Seed-Dateien, `run.json` und `training_state.json` führten zu unverständlichen Abbrüchen. Jetzt
+  folgen Selbstreparatur, Rückgriff auf die Datenbank oder eine Meldung mit Datei und Reparaturbefehl.
+- `--force-retest` wird wie in §8.2 verlangt im Bericht markiert (nur echte Wiederholungen).
+- Self-Play: Beim Ausdünnen des Snapshot-Pools wurde die Champion-Datei gelöscht, weil `sb3:`-Spec und Pfad
+  verglichen wurden. Das hätte den Lauf gegen Ende abbrechen lassen. Jetzt bleibt der Champion erhalten.
+- Ein mit Ausnahme beendeter Lauf wird am letzten periodischen Checkpoint fortgesetzt, nicht mit den
+  womöglich defekten Gewichten zum Fehlerzeitpunkt (`failed.zip`).
+- Zwei Läufe, die im selben Prozess in derselben Sekunde starten, erhalten verschiedene Run-IDs.
+- Der Bericht zeigt je Experiment das neueste Kingmaking-Ergebnis, statt Wiederholungen andere verdrängen zu
+  lassen.
+
 ## 0.1.0 – 2026-10-07
 
 Erste vollständige Version nach Masterplan v1.4.

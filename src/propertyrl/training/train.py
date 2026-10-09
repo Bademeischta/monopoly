@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.utils import set_random_seed
 
 from propertyrl.engine import constants as C
-from propertyrl.engine.errors import ConfigError
+from propertyrl.engine.errors import ArtifactError, ConfigError
 from propertyrl.engine.rng import u64
 from propertyrl.env.core import EnvConfig
 from propertyrl.env.factory import make_vec_env
@@ -30,10 +31,11 @@ from propertyrl.infra.config import (
     load_ppo_config,
     load_ruleset,
     read_frozen,
+    require_frozen,
 )
 from propertyrl.infra.logging_setup import setup_logging
 from propertyrl.infra.runmeta import build_run_meta, finish_run_meta, load_run_meta, new_run_id, run_dir, save_run_meta
-from propertyrl.infra.storage import query, runs_dir
+from propertyrl.infra.storage import query, read_json, runs_dir
 from propertyrl.training.budget import BudgetCallback
 from propertyrl.training.callbacks import (
     CheckpointEvalCallback,
@@ -42,7 +44,10 @@ from propertyrl.training.callbacks import (
     MetricsCallback,
     PFSPCallback,
     RunContext,
+    checkpoint_ok,
+    checkpoint_step,
     copy_checkpoint,
+    latest_valid_checkpoint,
     save_checkpoint,
 )
 from propertyrl.training.curriculum import CurriculumController
@@ -173,12 +178,29 @@ def seed_everything(seed: int) -> None:
     set_random_seed(seed)
 
 
-def env_base_seed(seed: int) -> int:
-    """Worker seed base derived from the training seed."""
-    return int(u64(seed, C.STREAM_TRAIN, 0) % 1_000_000_000)
+def env_base_seed(seed: int, segment: int = 0) -> int:
+    """Worker seed base derived from the training seed; segment k > 0 of a resumed run gets fresh games."""
+    return int(u64(seed, C.STREAM_TRAIN, segment) % 1_000_000_000)
+
+
+def segment_seed(seed: int, segment: int) -> int:
+    """Library seed of segment ``segment`` of a run (segment 0 = the training seed itself)."""
+    return seed if segment == 0 else int(u64(seed, C.STREAM_TRAIN, 1_000_000 + segment) % 2**31)
 
 
 FINISHED = ("completed", "budget_stopped")
+
+
+def is_finished(meta: dict[str, Any]) -> bool:
+    """A run is finished when it was stopped by the budget or completed all its steps (A-140).
+
+    A run that ended with an exception is "failed"; runs recorded as "completed" before that status existed
+    are checked against their step count, so an aborted run is never reused or evaluated as finished.
+    """
+    status = meta.get("status")
+    if status == "budget_stopped":
+        return True
+    return status == "completed" and int(meta.get("timesteps_done") or 0) >= int(meta.get("total_timesteps") or 0)
 
 
 def is_sweep_pilot(run_id: str, experiment: str) -> bool:
@@ -209,7 +231,7 @@ def find_checkpoint(experiment: str, seed: int | None, smoke: bool, kind: str = 
     """
     candidates = []
     for meta in experiment_runs(experiment, smoke):
-        if meta.get("status") not in FINISHED:
+        if not is_finished(meta):
             continue
         candidates.append((meta.get("training_seed") == seed, meta["run_id"]))
     candidates.sort(key=lambda x: not x[0])
@@ -243,8 +265,15 @@ def train(
     exp, ppo, env_cfg = resolve(experiment, seed, smoke, gamma, timesteps)
     if exp.mode == "sweep":
         raise ConfigError("use 'propertyrl sweep-gamma' for the gamma sweep experiment")
+    if not smoke and resume is None:
+        needed = ["horizon"] if exp.env.safety_horizon_rounds == "frozen" else []
+        needed += ["strongest_baseline"] if exp.env.n_players == 2 else []
+        needed += ["gamma"] if gamma is None and exp.env.gamma == "frozen" else []
+        require_frozen(needed, f"training {experiment}")
     multi = exp.training.algorithm == "multiseat_ppo"
-    seed_everything(seed)
+    # Segment k > 0 is the k-th resume of a run: fresh library and game seeds instead of replaying segment 0.
+    segment = len(meta.get("resumes", [])) + 1 if resume is not None else 0
+    seed_everything(segment_seed(seed, segment))
     full_cfg = run_config(exp, ppo, env_cfg)
     if resume is not None:
         run_id = meta["run_id"]
@@ -257,20 +286,76 @@ def train(
             run_id, experiment, env_cfg.ruleset, config_hash(full_cfg), seed, ppo.total_timesteps, ppo.budget_hours,
             smoke, extra={"gamma": ppo.gamma, "config": full_cfg, "label": exp.label},
         )  # fmt: skip
+    last = None
+    if resume is not None:
+        # The most advanced intact state: final.zip (written on every orderly exit) or the newest periodic
+        # checkpoint; files a power-off left incomplete are skipped (A-139).
+        last = latest_valid_checkpoint(rdir)
+        if last is None:
+            raise ConfigError(f"no intact checkpoint to resume in {rdir}")
+        meta.setdefault("resumes", []).append(
+            {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "checkpoint": str(last), "step": checkpoint_step(last)}
+        )
     save_run_meta(meta)
     setup_logging(log_file=rdir / "train.log")
     ctx = RunContext(run_id, rdir, exp, ppo, env_cfg, seed, smoke)
+    holder: dict[str, Any] = {}
+    try:
+        model, budget, callbacks = _prepare(ctx, meta, last, segment, multi, wandb, holder)
+    except BaseException as err:
+        # A run that cannot even start is never left as "running" (A-140).
+        _close_envs(holder.get("venv"))
+        finish_run_meta(meta, "interrupted" if isinstance(err, KeyboardInterrupt) else "failed")
+        raise
+    venv = holder["venv"]
+    status = "completed"
+    ctx.segment_start = time.monotonic()
+    try:
+        # On resume SB3 adds the already completed steps, so only the remainder is requested.
+        remaining = ppo.total_timesteps if last is None else max(0, ppo.total_timesteps - int(model.num_timesteps))
+        model.learn(
+            total_timesteps=remaining,
+            callback=CallbackList(callbacks),
+            reset_num_timesteps=last is None,
+            tb_log_name="ppo",
+        )
+        if budget.exceeded:
+            status = "budget_stopped"
+    except KeyboardInterrupt:
+        status = "interrupted"
+        raise
+    except BaseException:
+        # Never "completed": a run that died early must be resumed, not reused or evaluated (A-140).
+        status = "failed"
+        raise
+    finally:
+        _finish(model, ctx, venv, meta, status)
+    return run_summary(rdir, reused=False)
+
+
+def _prepare(
+    ctx: RunContext,
+    meta: dict[str, Any],
+    last: Path | None,
+    segment: int,
+    multi: bool,
+    wandb: bool,
+    holder: dict[str, Any],
+) -> tuple[Any, BudgetCallback, list[Any]]:
+    """Environments (stored in ``holder`` so the caller can close them on failure), model and callbacks."""
+    exp, ppo, env_cfg, seed, rdir = ctx.experiment, ctx.ppo, ctx.env_cfg, ctx.seed, ctx.run_dir
     if exp.opponents.mode == "curriculum":
         ctx.curriculum = CurriculumController([dict(s) for s in exp.opponents.curriculum_stages])
     if exp.opponents.mode in ("selfplay", "fourp"):
         ctx.pool = SnapshotPool(exp.opponents.pool_max)
-    if resume is not None:
+    if last is not None:
         ctx.load_state()
     if ctx.curriculum is not None:
         env_cfg.opponents.stage = ctx.curriculum.stage
     if ctx.pool is not None:
         env_cfg.opponents.snapshots = tuple(ctx.pool.paths)
-    venv = make_vec_env(env_cfg, ppo.n_envs, env_base_seed(seed), ppo.vec_env, multi_seat=multi)
+    venv = make_vec_env(env_cfg, ppo.n_envs, env_base_seed(seed, segment), ppo.vec_env, multi_seat=multi)
+    holder["venv"] = venv
     algo: type[SMDPMaskablePPO] = MultiSeatSMDPMaskablePPO if multi else SMDPMaskablePPO
     tb = str(rdir / "tb")
     kwargs = dict(
@@ -279,22 +364,20 @@ def train(
         vf_coef=ppo.vf_coef, max_grad_norm=ppo.max_grad_norm, device=device_of(ppo), seed=seed, verbose=0,
         tensorboard_log=tb,
     )  # fmt: skip
-    if resume is not None:
-        # The most recent state: final.zip (written on every exit, including interrupts) or the last checkpoint.
-        candidates = [p for p in [*(Path(c) for c in ctx.checkpoints[-1:]), rdir / "final.zip"] if p.exists()]
-        if not candidates:
-            raise ConfigError(f"no checkpoint to resume in {rdir}")
-        last = max(candidates, key=lambda p: p.stat().st_mtime_ns)
+    if last is not None:
         from propertyrl.agents.sb3_agent import read_metadata
 
         read_metadata(last)
         model = algo.load(str(last), env=venv, device=device_of(ppo), tensorboard_log=tb)
+        # load() re-seeds everything with the run's original seed; segment k > 0 continues with fresh seeds
+        # instead of replaying the first games of the run (A-140).
+        model.set_random_seed(segment_seed(seed, segment))
     else:
         model = algo("MlpPolicy", venv, policy_kwargs=policy_kwargs(ppo), **kwargs)
         if exp.training.init_from:
-            src = find_checkpoint(exp.training.init_from, seed, smoke)
+            src = find_checkpoint(exp.training.init_from, seed, ctx.smoke)
             if src is None:
-                raise ConfigError(f"no checkpoint of {exp.training.init_from} found to start {experiment}")
+                raise ConfigError(f"no checkpoint of {exp.training.init_from} found to start {exp.name}")
             from propertyrl.agents.sb3_agent import read_metadata
 
             read_metadata(src)
@@ -308,7 +391,8 @@ def train(
                 copy_checkpoint(first, rdir / "champion.zip")
                 venv.env_method("reload_opponents", {"snapshots": list(ctx.pool.paths)})
     model.check_gamma(env_cfg.gamma)
-    budget = BudgetCallback(ppo.budget_hours)
+    # The 12 h budget covers all segments of a resumed run (A-140).
+    budget = BudgetCallback(max(0.0, ppo.budget_hours - ctx.hours_before))
     callbacks = [MetricsCallback(ctx), CheckpointEvalCallback(ctx), budget,
                  ExplainedVarianceWarning(ctx, ppo.total_timesteps)]  # fmt: skip
     if exp.opponents.mode in ("selfplay", "fourp", "fourp_fallback"):
@@ -316,73 +400,113 @@ def train(
     if wandb:
         from propertyrl.training.wandb_logging import WandbCallback
 
-        technical = {"experiment": experiment, "seed": seed, "config_hash": meta["config_hash"], **kwargs}
-        callbacks.append(WandbCallback(run_id, experiment, {k: str(v) for k, v in technical.items()}, str(rdir)))
+        technical = {"experiment": exp.name, "seed": seed, "config_hash": meta["config_hash"], **kwargs}
+        callbacks.append(WandbCallback(ctx.run_id, exp.name, {k: str(v) for k, v in technical.items()}, str(rdir)))
     if exp.opponents.mode == "fourp_fallback":
         latest = save_checkpoint(model, ctx, rdir / "latest.zip", "latest")
         venv.env_method("reload_opponents", {"latest_path": str(latest)})
         callbacks.append(LatestSyncCallback(ctx))
-    status = "completed"
+    return model, budget, callbacks
+
+
+def _close_envs(venv: Any) -> None:
+    if venv is None:
+        return
     try:
-        # On resume SB3 adds the already completed steps, so only the remainder is requested.
-        remaining = ppo.total_timesteps if resume is None else max(0, ppo.total_timesteps - int(model.num_timesteps))
-        model.learn(
-            total_timesteps=remaining,
-            callback=CallbackList(callbacks),
-            reset_num_timesteps=resume is None,
-            tb_log_name="ppo",
-        )
-        if budget.exceeded:
-            status = "budget_stopped"
-    except KeyboardInterrupt:
-        status = "interrupted"
+        venv.close()
+    except Exception as err:  # e.g. BrokenPipeError of SubprocVecEnv workers after a console Ctrl-C
+        log.warning("closing the environments failed: %s", err)
+
+
+def _finish(model: Any, ctx: RunContext, venv: Any, meta: dict[str, Any], status: str) -> None:
+    """Final checkpoint, state and run.json on every exit; a failure to save marks the run as failed."""
+    try:
+        if status == "failed":
+            # The weights at the time of an exception may be its cause (e.g. NaN after a divergence): they are kept
+            # for diagnosis only, and a resume continues from the newest periodic checkpoint (A-140).
+            save_checkpoint(model, ctx, ctx.run_dir / "failed.zip", "failed")
+        else:
+            final = save_checkpoint(model, ctx, ctx.run_dir / "final.zip", "final")
+            if ctx.best_select_path is None:
+                copy_checkpoint(final, ctx.run_dir / "best_select.zip")
+                ctx.best_select_path = str(ctx.run_dir / "best_select.zip")
+        ctx.save_state()
+    except BaseException:
+        status = "failed"
         raise
     finally:
-        final = save_checkpoint(model, ctx, rdir / "final.zip", "final")
-        if ctx.best_select_path is None:
-            copy_checkpoint(final, rdir / "best_select.zip")
-            ctx.best_select_path = str(rdir / "best_select.zip")
-        ctx.save_state()
-        venv.close()
+        _close_envs(venv)
         finish_run_meta(
             meta, status, timesteps_done=int(model.num_timesteps), warnings=ctx.warnings,
             best_select=ctx.best_select, best_select_path=ctx.best_select_path, eval_games=ctx.eval_games,
-            training_hours=budget.elapsed_hours(),
+            training_hours=ctx.training_hours(),
         )  # fmt: skip
+
+
+def run_summary(rdir: Path, reused: bool) -> dict[str, Any]:
+    """Summary of a run from run.json and training_state.json (same keys for new, resumed and reused runs)."""
+    meta = load_run_meta(rdir)
+    state_path = rdir / "training_state.json"
+    try:
+        state: dict[str, Any] = read_json(state_path) if state_path.exists() else {}
+    except ArtifactError as err:
+        log.warning("%s; summary built from run.json only", err)
+        state = {}
+    curriculum = state.get("curriculum")
     return {
-        "run_id": run_id,
+        "run_id": meta["run_id"],
         "run_dir": str(rdir),
-        "status": status,
-        "timesteps": int(model.num_timesteps),
+        "status": meta.get("status"),
+        "timesteps": int(meta.get("timesteps_done") or 0),
         "final": str(rdir / "final.zip"),
-        "best_select": ctx.best_select_path,
-        "best_select_win_rate": ctx.best_select,
-        "champion": ctx.champion,
-        "champion_history": ctx.champion_history,
-        "curriculum": ctx.curriculum.state() if ctx.curriculum else None,
-        "ev_history": ctx.ev_history,
-        "episode_steps": ctx.episode_steps,
-        "episode_durations": ctx.episode_durations,
-        "select_history": ctx.select_history,
-        "gamma": ppo.gamma,
+        "best_select": state.get("best_select_path") or meta.get("best_select_path"),
+        "best_select_win_rate": state.get("best_select", meta.get("best_select")),
+        "champion": state.get("champion"),
+        "champion_history": list(state.get("champion_history", [])),
+        "curriculum": curriculum,
+        "ev_history": list(state.get("ev_history", [])),
+        "episode_steps": [int(x) for x in state.get("episode_steps", [])],
+        "episode_durations": [int(x) for x in state.get("episode_durations", [])],
+        "select_history": list(state.get("select_history", [])),
+        "gamma": meta.get("gamma"),
+        "reused": reused,
     }
 
 
-def train_or_reuse(experiment: str, seed: int, smoke: bool = False) -> dict[str, Any]:
-    """Pipeline step for one seed: reuse a finished run with the identical configuration, resume an
-    interrupted one, or train a new run. Makes ``propertyrl pipeline`` safe to re-run after an abort (A-136)."""
-    exp, ppo, env_cfg = resolve(experiment, seed, smoke)
+def train_or_reuse(
+    experiment: str,
+    seed: int,
+    smoke: bool = False,
+    gamma: float | None = None,
+    timesteps: int | None = None,
+    run_tag: str = "",
+    wandb: bool = False,
+) -> dict[str, Any]:
+    """Reuse a finished run with the identical configuration, resume an unfinished one, or train a new run.
+
+    The newest run with this configuration and seed decides (an interrupted ``train --new`` retry is resumed,
+    not replaced by an older finished run). Makes ``propertyrl train``, ``selfplay``, ``sweep-gamma`` and
+    ``pipeline`` safe to re-run after an abort, a crash or a power-off (A-136, A-140).
+    """
+    exp, ppo, env_cfg = resolve(experiment, seed, smoke, gamma, timesteps)
     wanted = config_hash(run_config(exp, ppo, env_cfg))
-    for meta in experiment_runs(experiment, smoke):
+    pilot = bool(run_tag)
+    rows = query("SELECT run_id, run_json FROM runs WHERE experiment = ? ORDER BY started DESC", (experiment,))
+    for run_id, raw in rows:
+        meta = json.loads(raw)
+        if bool(meta.get("smoke")) != smoke or is_sweep_pilot(run_id, experiment) != pilot:
+            continue
         if meta.get("training_seed") != seed or meta.get("config_hash") != wanted:
             continue
-        rdir = run_dir(meta["run_id"])
-        if meta.get("status") in FINISHED and (rdir / "final.zip").exists():
-            log.info("reusing finished run %s for %s seed %d", meta["run_id"], experiment, seed)
-            return {"run_id": meta["run_id"], "run_dir": str(rdir), "final": str(rdir / "final.zip"),
-                    "status": meta.get("status"), "reused": True}  # fmt: skip
-        if (rdir / "final.zip").exists() or any((rdir / "checkpoints").glob("ckpt_*.zip")):
-            log.info("resuming run %s (%s) for %s seed %d", meta["run_id"], meta.get("status"), experiment, seed)
-            return train("", 0, resume=rdir)
-        break
-    return train(experiment, seed, smoke=smoke)
+        rdir = runs_dir() / run_id
+        if not rdir.exists():
+            continue
+        if is_finished(meta) and checkpoint_ok(rdir / "final.zip"):
+            log.info("reusing finished run %s for %s seed %d", run_id, experiment, seed)
+            return run_summary(rdir, reused=True)
+        last = latest_valid_checkpoint(rdir)
+        if last is not None:
+            log.info("resuming run %s at step %d for %s seed %d", run_id, checkpoint_step(last), experiment, seed)
+            return train("", 0, resume=rdir, wandb=wandb)
+        break  # the newest attempt has nothing to continue from: start afresh
+    return train(experiment, seed, smoke=smoke, gamma=gamma, timesteps=timesteps, run_tag=run_tag, wandb=wandb)

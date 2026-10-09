@@ -6,12 +6,18 @@ import json
 import os
 import sqlite3
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from propertyrl.engine.errors import ArtifactError
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+#: Attempts of os.replace when Windows reports the target as in use (reader, virus scanner).
+_REPLACE_ATTEMPTS = 20
+#: Marker in the names of temporary files written by :func:`atomic_path`.
+TMP_MARKER = ".tmp-"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -77,9 +83,14 @@ def db_path() -> Path:
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    """Open the database (schema created on first use) and commit on exit."""
+    """Open the database (schema created on first use) and commit on exit.
+
+    Everything written inside one ``with connect()`` block is a single transaction: after a crash or
+    power-off either all of it or none of it is in the database (rollback journal, synchronous=FULL; A-139).
+    """
     conn = sqlite3.connect(str(db_path()), timeout=60)
     try:
+        conn.execute("PRAGMA synchronous=FULL")
         conn.executescript(SCHEMA)
         yield conn
         conn.commit()
@@ -87,18 +98,86 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def write_json(path: Path, data: Any) -> None:
-    """Write UTF-8 JSON with LF line endings."""
+def _fsync_file(path: Path) -> None:
+    with path.open("rb+") as fh:
+        os.fsync(fh.fileno())
+
+
+def _retry_in_use(action: Callable[[], object]) -> None:
+    """Run ``action``; retry briefly while Windows reports the file as in use (reader, virus scanner)."""
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            action()
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Persist a rename on POSIX; Windows cannot open directories (NTFS journals the rename itself)."""
+    if os.name == "nt":
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def replace_durably(tmp: Path, path: Path) -> None:
+    """Flush ``tmp`` to disk and atomically move it over ``path`` (A-139)."""
+    # Windows: another process may hold either file open for a moment; anything else is a real error.
+    _retry_in_use(lambda: _fsync_file(tmp))
+    _retry_in_use(lambda: os.replace(tmp, path))
+    _fsync_dir(path.parent)
+
+
+@contextmanager
+def atomic_path(path: Path) -> Iterator[Path]:
+    """Yield a temporary sibling of ``path``; when the block succeeds it is synced and renamed onto ``path``.
+
+    A crash, Ctrl-C or power-off therefore leaves either the previous complete file or the new complete file,
+    never a truncated or NUL-filled one (A-139). The suffix is kept so writers that infer the format from the
+    file name (matplotlib, SB3) behave as for ``path`` itself.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as fh:
-        json.dump(data, fh, indent=2, sort_keys=True, default=str)
-        fh.write("\n")
+    tmp = path.with_name(f".{path.stem}{TMP_MARKER}{os.getpid()}{path.suffix}")
+    try:
+        yield tmp
+        replace_durably(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically and durably."""
+    with atomic_path(path) as tmp:
+        tmp.write_bytes(data)
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write UTF-8 text with LF line endings atomically and durably."""
+    atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def write_json(path: Path, data: Any) -> None:
+    """Write UTF-8 JSON with LF line endings atomically and durably (A-139)."""
+    atomic_write_text(path, json.dumps(data, indent=2, sort_keys=True, default=str) + "\n")
 
 
 def read_json(path: Path) -> Any:
-    """Read UTF-8 JSON."""
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    """Read UTF-8 JSON; a torn or unreadable file raises :class:`ArtifactError` naming the file."""
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (json.JSONDecodeError, UnicodeDecodeError) as err:
+        raise ArtifactError(
+            f"{path} is damaged or incomplete ({err}); run 'propertyrl doctor' for the repair step",
+            details={"path": str(path)},
+        ) from err
 
 
 def record_run(run_id: str, experiment: str, status: str, smoke: bool, run_json: dict[str, Any]) -> None:
@@ -139,26 +218,29 @@ def record_eval_summary(
     summary: dict[str, Any],
     path: Path,
     smoke: bool,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
-    """Insert an evaluation summary row."""
-    with connect() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO eval_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                eval_id,
-                agent_hash,
-                experiment,
-                split,
-                ruleset_id,
-                n_seeds,
-                n_games,
-                json.dumps(opponents),
-                json.dumps(summary, sort_keys=True, default=str),
-                str(path),
-                int(smoke),
-                time.time(),
-            ),
-        )
+    """Insert an evaluation summary row (inside the caller's transaction when ``conn`` is given)."""
+    row = (
+        eval_id,
+        agent_hash,
+        experiment,
+        split,
+        ruleset_id,
+        n_seeds,
+        n_games,
+        json.dumps(opponents),
+        json.dumps(summary, sort_keys=True, default=str),
+        str(path),
+        int(smoke),
+        time.time(),
+    )
+    sql = "INSERT OR REPLACE INTO eval_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    if conn is not None:
+        conn.execute(sql, row)
+        return
+    with connect() as own:
+        own.execute(sql, row)
 
 
 def record_benchmark(bench_id: str, data: dict[str, Any]) -> None:

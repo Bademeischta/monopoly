@@ -6,6 +6,7 @@ from propertyrl.engine.cards import Card, Decks
 from propertyrl.engine.decisions import Bid, BidLevel, Decision
 from propertyrl.engine.equity import canonical_equity, liquidation_value, weighted_equity
 from propertyrl.engine.errors import (
+    ArtifactError,
     ConfigError,
     EngineWatchdogError,
     IllegalActionError,
@@ -31,6 +32,7 @@ __all__ = [
     "COUNTER_NAMES",
     "EVENT_TYPES",
     "AgentRng",
+    "ArtifactError",
     "Bid",
     "BidLevel",
     "Board",

@@ -111,7 +111,21 @@ def test_smoke_never_touches_test_split(fresh_home: Path) -> None:
     assert ledger.is_empty()
 
 
+def _freeze_g3(home: Path) -> None:
+    frozen = home / "artifacts" / "frozen"
+    frozen.mkdir(parents=True, exist_ok=True)
+    (frozen / "horizon.json").write_text(json.dumps({"horizon_2p": 300, "horizon_4p": 300}), encoding="utf-8")
+    (frozen / "strongest_baseline.json").write_text(json.dumps({"policy": "strong_a_v1"}), encoding="utf-8")
+
+
+def test_test_split_needs_frozen_g3_artifacts(fresh_home: Path) -> None:
+    with pytest.raises(ConfigError, match="horizon"):
+        evaluate_agent("random_legal", ["greedy_v1"], "test", n_seeds=1, workers=1, experiment="t")
+    assert ledger.is_empty()
+
+
 def test_test_split_records_ledger_once(fresh_home: Path) -> None:
+    _freeze_g3(fresh_home)
     summary = evaluate_agent("random_legal", ["greedy_v1"], "test", n_seeds=1, workers=1, experiment="t")
     assert summary["split"] == "test"
     assert len(ledger.entries(summary["agent_hash"])) == 1
@@ -120,6 +134,53 @@ def test_test_split_records_ledger_once(fresh_home: Path) -> None:
     test_pool = set(seeds.load_pools()["TEST"])
     select_pool = set(seeds.load_pools()["SELECT"])
     assert not (test_pool & select_pool)
+
+
+def test_test_summary_and_ledger_commit_together(fresh_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An interruption between the summary row and the ledger row leaves neither (one transaction, A-139)."""
+    import propertyrl.evaluation.evaluate as evaluate_mod
+
+    _freeze_g3(fresh_home)
+
+    def interrupted(*args: object, **kwargs: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(evaluate_mod, "record_eval_summary", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        evaluate_agent("random_legal", ["greedy_v1"], "test", n_seeds=1, workers=1, experiment="t")
+    assert ledger.is_empty()
+    (eval_dir,) = (fresh_home / "artifacts" / "eval").iterdir()
+    assert (eval_dir / "games.parquet").exists()  # games were stored before the database transaction
+    monkeypatch.undo()
+    monkeypatch.setenv("PROPERTYRL_HOME", str(fresh_home))
+    summary = evaluate_agent("random_legal", ["greedy_v1"], "test", n_seeds=1, workers=1, experiment="t")
+    assert len(ledger.entries(summary["agent_hash"])) == 1
+
+
+def test_stored_evaluation_is_found_only_for_identical_settings(fresh_home: Path) -> None:
+    from propertyrl.evaluation.evaluate import stored_evaluation
+
+    done = evaluate_agent("random_legal", ["greedy_v1"], "select", n_seeds=2, workers=1, experiment="t")
+    again = stored_evaluation("random_legal", ["greedy_v1"], "select", n_seeds=2, experiment="t")
+    assert again is not None and again["eval_id"] == done["eval_id"]
+    assert stored_evaluation("random_legal", ["greedy_v1"], "select", n_seeds=3, experiment="t") is None
+    assert stored_evaluation("random_legal", ["roi_markov_v1"], "select", n_seeds=2, experiment="t") is None
+    assert stored_evaluation("greedy_v1", ["greedy_v1"], "select", n_seeds=2, experiment="t") is None
+
+
+def test_seed_pools_rebuild_after_torn_write(fresh_home: Path) -> None:
+    pools = seeds.load_pools()
+    seeds._load_cached.cache_clear()
+    (fresh_home / "artifacts" / "seeds" / "select.json").write_bytes(b"\x00" * 64)  # power-off remains
+    assert seeds.load_pools() == pools
+    seeds._load_cached.cache_clear()
+    assert seeds.load_pools() == pools  # the file was rewritten
+    seeds._load_cached.cache_clear()
+    checks = fresh_home / "artifacts" / "seeds" / "checksums.json"
+    checks.write_text(json.dumps({"SELECT": "0" * 64}), encoding="utf-8")
+    (fresh_home / "artifacts" / "seeds" / "test.json").write_text("[1, 2", encoding="utf-8")
+    with pytest.raises(SeedLedgerError):  # a readable but different checksum is never overwritten silently
+        seeds.load_pools()
 
 
 def test_resolve_agent_specs(tmp_path: Path) -> None:

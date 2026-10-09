@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 
 from propertyrl.agents.registry import clear_cache
+from propertyrl.engine.errors import ArtifactError
 from propertyrl.engine.hashing import sha256_bytes
 from propertyrl.env.core import EnvConfig
 from propertyrl.env.observation import OBS_VERSION
@@ -21,7 +23,7 @@ from propertyrl.evaluation.duplicate import duplicate_specs, summarize
 from propertyrl.evaluation.harness import default_workers, run_games
 from propertyrl.evaluation.seeds import subset
 from propertyrl.infra.config import ExperimentConfig, PPOConfig, read_frozen
-from propertyrl.infra.storage import read_json, record_checkpoint, write_json
+from propertyrl.infra.storage import atomic_path, read_json, record_checkpoint, write_json
 from propertyrl.training.curriculum import CurriculumController
 from propertyrl.training.selfplay import SnapshotPool, champion_gate, pfsp_weights
 from propertyrl.versions import (
@@ -61,6 +63,9 @@ class RunContext:
     episode_durations: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     eval_games: int = 0
+    #: Training hours of earlier segments of a resumed run (the 12 h budget covers all segments, A-140).
+    hours_before: float = 0.0
+    segment_start: float = field(default_factory=time.monotonic)
 
     @property
     def n_players(self) -> int:
@@ -78,6 +83,10 @@ class RunContext:
     def state_path(self) -> Path:
         return self.run_dir / "training_state.json"
 
+    def training_hours(self) -> float:
+        """Training hours of all segments of this run so far."""
+        return self.hours_before + (time.monotonic() - self.segment_start) / 3600.0
+
     def save_state(self) -> None:
         """Persist everything needed for --resume."""
         write_json(
@@ -94,10 +103,11 @@ class RunContext:
                 "checkpoints": self.checkpoints,
                 "select_history": self.select_history,
                 "ev_history": self.ev_history,
-                "episode_steps": self.episode_steps[-5000:],
-                "episode_durations": self.episode_durations[-5000:],
+                "episode_steps": self.episode_steps,
+                "episode_durations": self.episode_durations,
                 "warnings": self.warnings,
                 "eval_games": self.eval_games,
+                "training_hours": self.training_hours(),
             },
         )
 
@@ -119,8 +129,35 @@ class RunContext:
         self.checkpoints = list(data.get("checkpoints", []))
         self.select_history = list(data.get("select_history", []))
         self.ev_history = list(data.get("ev_history", []))
+        self.episode_steps = [int(x) for x in data.get("episode_steps", [])]
+        self.episode_durations = [int(x) for x in data.get("episode_durations", [])]
         self.warnings = list(data.get("warnings", []))
         self.eval_games = int(data.get("eval_games", 0))
+        self.hours_before = float(data.get("training_hours", 0.0))
+        self._drop_damaged_checkpoints()
+
+    def _drop_damaged_checkpoints(self) -> None:
+        """Forget checkpoints a power-off left incomplete, so a resume never loads them (A-139)."""
+        if self.best_select_path and not checkpoint_ok(Path(self.best_select_path)):
+            copy = self.run_dir / "best_select.zip"  # e.g. the run directory was restored to another path
+            if checkpoint_ok(copy):
+                self.best_select_path = str(copy)
+            else:
+                log.warning("best_select checkpoint %s is damaged; the next SELECT evaluation picks a new one",
+                            self.best_select_path)  # fmt: skip
+                self.best_select, self.best_select_path = -1.0, None
+        self.checkpoints = [c for c in self.checkpoints if checkpoint_ok(Path(c))]
+        if self.pool is not None:
+            valid = [p for p in self.pool.paths if checkpoint_ok(Path(p))]
+            if len(valid) != len(self.pool.paths):
+                log.warning("dropping %d damaged snapshots from the pool", len(self.pool.paths) - len(valid))
+                self.pool = SnapshotPool(self.pool.max_size, valid)
+            champion = (self.champion or "").split(":", 1)[-1]
+            if champion and not checkpoint_ok(Path(champion)):
+                fallback = self.run_dir / "champion.zip"
+                self.champion = f"sb3:{fallback}" if checkpoint_ok(fallback) else (
+                    f"sb3:{valid[-1]}" if valid else None)  # fmt: skip
+                log.warning("champion checkpoint %s is damaged; using %s", champion, self.champion)
 
 
 # ---------------------------------------------------------------------------- checkpoint helpers
@@ -145,10 +182,14 @@ def checkpoint_metadata(ctx: RunContext, path: Path, step: int, kind: str) -> di
 
 
 def save_checkpoint(model: Any, ctx: RunContext, path: Path, kind: str, winrate: float | None = None) -> Path:
-    """Save model zip plus metadata JSON and register it in the database."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    model.save(str(path))
+    """Save model zip plus metadata JSON (each atomically, zip first) and register it in the database.
+
+    The metadata carries the SHA-256 of the complete zip, so a pair torn by a power-off is detected by
+    :func:`checkpoint_ok` and never resumed from (A-139).
+    """
     zip_path = path if path.suffix == ".zip" else path.with_suffix(".zip")
+    with atomic_path(zip_path) as tmp:
+        model.save(str(tmp))
     meta = checkpoint_metadata(ctx, zip_path, int(model.num_timesteps), kind)
     write_json(zip_path.with_suffix(".json"), meta)
     record_checkpoint(ctx.run_id, int(model.num_timesteps), zip_path, meta["model_hash"], kind, winrate)
@@ -156,9 +197,42 @@ def save_checkpoint(model: Any, ctx: RunContext, path: Path, kind: str, winrate:
 
 
 def copy_checkpoint(src: Path, dst: Path) -> None:
-    """Copy a checkpoint zip together with its metadata JSON."""
-    shutil.copyfile(src, dst)
-    shutil.copyfile(src.with_suffix(".json"), dst.with_suffix(".json"))
+    """Copy a checkpoint zip together with its metadata JSON (each atomically)."""
+    for s, d in ((src, dst), (src.with_suffix(".json"), dst.with_suffix(".json"))):
+        with atomic_path(d) as tmp:
+            shutil.copyfile(s, tmp)
+
+
+def checkpoint_ok(path: Path) -> bool:
+    """True if ``path`` and its metadata JSON exist and the zip matches the stored model hash."""
+    meta_path = path.with_suffix(".json")
+    if not path.exists() or not meta_path.exists():
+        return False
+    try:
+        meta = read_json(meta_path)
+        return isinstance(meta, dict) and meta.get("model_hash") == sha256_bytes(path.read_bytes())
+    except (ArtifactError, OSError):
+        return False
+
+
+def checkpoint_step(path: Path) -> int:
+    """Training step stored in a checkpoint's metadata."""
+    return int(read_json(path.with_suffix(".json"))["step"])
+
+
+def latest_valid_checkpoint(run_dir: Path) -> Path | None:
+    """Most advanced intact checkpoint of a run (final.zip or a periodic checkpoint); damaged ones are skipped."""
+    best: tuple[int, bool, Path] | None = None
+    for path in [run_dir / "final.zip", *sorted((run_dir / "checkpoints").glob("ckpt_*.zip"))]:
+        if not path.exists():
+            continue
+        if not checkpoint_ok(path):
+            log.warning("skipping damaged checkpoint %s", path)
+            continue
+        key = (checkpoint_step(path), path.name == "final.zip", path)
+        if best is None or key[:2] > best[:2]:
+            best = key
+    return best[2] if best else None
 
 
 def eval_opponents(ctx: RunContext) -> list[str]:
@@ -344,8 +418,9 @@ class CheckpointEvalCallback(BaseCallback):
         assert ctx.pool is not None
         path = save_checkpoint(self.model, ctx, ctx.run_dir / "snapshots" / f"snap_{t:010d}.zip", "snapshot")
         removed = ctx.pool.add(str(path))
+        champion = (ctx.champion or "").split(":", 1)[-1]  # the champion spec carries the "sb3:" prefix
         for old in removed:
-            if old != ctx.champion:
+            if old != champion:
                 for p in (Path(old), Path(old).with_suffix(".json")):
                     if p.exists():
                         p.unlink()

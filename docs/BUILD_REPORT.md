@@ -394,3 +394,34 @@ die nach dem Abschlusslauf eingearbeitet wurden:
    die neueste Repro-Datei; `--smoke-all` prüft „Ledger unverändert“ statt „Ledger leer“; `round-robin
    --policies` für den G3-Fallback; UTF-8-Ausgabe der CLI unter Windows; README-Installation (Anführungszeichen
    bei `".[dev]"`, `python -m pip`, Python-3.12-Auswahl, PowerShell-Varianten).
+
+### Nachtrag 2: Robustheit gegen Abbruch, Absturz und Stromausfall
+
+Beim ersten Volllauf auf einem Windows-Rechner wurde der PC während Schritt 5 ausgeschaltet. Eine Prüfung
+aller Schreib- und Fortsetzungspfade (fünf Teilsysteme, unabhängig verifiziert) ergab Lücken, die vor
+Schritt 6 geschlossen wurden:
+
+1. **Atomare, dauerhafte Dateien** (A-139): JSON, Parquet, Checkpoints, Kopien, Berichte und Grafiken werden
+   über Temporärdatei, `fsync` und `os.replace` geschrieben. Checkpoint-Metadaten tragen den Zip-Hash.
+   Unlesbare Dateien melden `ArtifactError` mit Reparaturbefehl, Seed-Dateien reparieren sich selbst.
+2. **Kein „completed“ nach Absturz** (A-140): Eine Ausnahme setzt den Status `failed`. Fertig ist nur ein Lauf
+   mit allen Schritten oder Budget-Stopp. Vorher hätte ein abgebrochener Lauf als fertig gegolten und die
+   einmalige TEST-Auswertung verbraucht.
+3. **Fortsetzen überall** (A-140): `train`, `selfplay`, `sweep-gamma` und `pipeline` übernehmen fertige
+   Läufe und setzen unfertige am neuesten intakten Checkpoint fort. Beschädigte Checkpoints werden
+   übersprungen. Fortsetzungen werden protokolliert, das Budget gilt über alle Abschnitte.
+4. **TEST-Auswertung in einer Transaktion** (A-139): Die Spiele werden vor der Datenbank gespeichert;
+   Auswertungs- und Ledger-Zeile werden gemeinsam übernommen oder gar nicht.
+5. **Reihenfolge-unabhängiges G3 und Vorbedingungen** (A-141): Der Round-Robin ignoriert `horizon.json`.
+   Training und TEST verlangen die eingefrorenen Artefakte, erzwungene TEST-Wiederholungen stehen im
+   Bericht.
+6. **`propertyrl doctor`** (A-142) und Anleitung „Nach Abbruch, Absturz oder Stromausfall“
+   (`docs/TRAINING_GUIDE.md`). Logs werden angehängt statt überschrieben.
+7. **Review der Korrekturen** (vier Teilsysteme, adversarial verifiziert). Ergebnis: Der neueste Lauf einer
+   Konfiguration entscheidet (eine unterbrochene `--new`-Wiederholung wird fortgesetzt). `failed.zip` statt
+   `final.zip` nach Ausnahmen. Neue Seeds je Fortsetzungsabschnitt nach dem Laden. `doctor` beachtet die
+   Stopp-Regeln G4/G5/G7 und übersteht eine beschädigte Datenbank. `evaluate` übernimmt gleiche Auswertungen.
+   Kingmaking-Wiederverwendung nur bei gleichem Agenten, gleichen Seeds, Parametern und Horizont. Ein
+   bestehender Self-Play-Fehler ist behoben: Die Champion-Datei wurde beim Ausdünnen gelöscht.
+8. **G3-Horizont des ersten Volllaufs** (A-143): Truncation 5,1 % bei H = 140 (Grenze < 5 %), auf Linux
+   bitgleich nachgespielt. H bleibt nach Formel eingefroren, G3 FAIL wird als Negativergebnis berichtet.

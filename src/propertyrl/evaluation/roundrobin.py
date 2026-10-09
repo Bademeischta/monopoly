@@ -13,8 +13,8 @@ from propertyrl.evaluation.evaluate import records_frame
 from propertyrl.evaluation.harness import run_games
 from propertyrl.evaluation.ratings import elo, openskill
 from propertyrl.evaluation.seeds import subset
-from propertyrl.infra.config import frozen_dir
-from propertyrl.infra.storage import sub_artifacts, write_json
+from propertyrl.infra.config import frozen_dir, load_ruleset
+from propertyrl.infra.storage import atomic_path, sub_artifacts, write_json
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +64,11 @@ def run_round_robin(
     else:
         k = seeds_per_block or 1000
         blocks = {"block1": subset("SELECT", start=0, end=k), "block2": subset("SELECT", start=1000, end=1000 + k)}
-    result: dict[str, Any] = {"policies": pols, "smoke": smoke, "seeds_per_block": k, "blocks": {}}
+    # G3 precedes the horizon calibration, so the round-robin always plays with the ruleset's placeholder
+    # horizon; a re-run after horizon.json exists therefore reproduces the frozen result (A-141).
+    placeholder = load_ruleset("OFFICIAL_US_CLASSIC_2008", use_frozen_horizon=False).safety_horizon_rounds
+    result: dict[str, Any] = {"policies": pols, "smoke": smoke, "seeds_per_block": k, "blocks": {},
+                              "safety_horizon_rounds": placeholder}  # fmt: skip
     all_records = []
     start = time.perf_counter()
     for name, seeds in blocks.items():
@@ -72,7 +76,7 @@ def run_round_robin(
         specs = []
         index = []
         for a, b in itertools.combinations(pols, 2):
-            s = duplicate_specs(a, [b], seeds, "OFFICIAL_US_CLASSIC_2008", 2)
+            s = duplicate_specs(a, [b], seeds, "OFFICIAL_US_CLASSIC_2008", 2, safety_horizon_rounds=placeholder)
             index.append((a, b, len(specs), len(specs) + len(s)))
             specs += s
         records = run_games(specs, workers=workers)
@@ -103,7 +107,8 @@ def run_round_robin(
     result["seconds"] = time.perf_counter() - start
     out = sub_artifacts("roundrobin")
     tag = "smoke" if smoke else time.strftime("%Y%m%d-%H%M%S")
-    records_frame(all_records).to_parquet(out / f"games_{tag}.parquet", index=False)
+    with atomic_path(out / f"games_{tag}.parquet") as tmp:
+        records_frame(all_records).to_parquet(tmp, index=False)
     write_json(out / f"roundrobin_{tag}.json", result)
     frozen = {"policy": result["strongest"], "passed": result["passed"], "transitive": result["transitive"],
               "stable_top": result["stable_top"], "smoke": smoke, "seeds_per_block": k}  # fmt: skip

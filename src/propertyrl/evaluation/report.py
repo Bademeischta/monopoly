@@ -13,9 +13,18 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from propertyrl.engine.errors import ArtifactError
 from propertyrl.evaluation.stats import holm, paired_bootstrap
 from propertyrl.infra.config import SMOKE_LABEL, frozen_dir, list_experiments, load_experiment
-from propertyrl.infra.storage import query, read_json, reports_dir, runs_dir, sub_artifacts
+from propertyrl.infra.storage import (
+    atomic_path,
+    atomic_write_text,
+    query,
+    read_json,
+    reports_dir,
+    runs_dir,
+    sub_artifacts,
+)
 
 log = logging.getLogger(__name__)
 ABLATIONS = (
@@ -83,7 +92,11 @@ def learning_curves(runs: list[dict[str, Any]], path: Path) -> bool:
         state_path = runs_dir() / meta["run_id"] / "training_state.json"
         if not state_path.exists():
             continue
-        hist = read_json(state_path).get("select_history", [])
+        try:
+            hist = read_json(state_path).get("select_history", [])
+        except ArtifactError as err:  # a run torn by a power-off must not break the report
+            log.warning("learning curve of %s skipped: %s", meta["run_id"], err)
+            continue
         if hist:
             ax.plot([h["step"] for h in hist], [h["win_rate"] for h in hist], marker="o", label=meta["run_id"][-30:])
             plotted = True
@@ -93,7 +106,8 @@ def learning_curves(runs: list[dict[str, Any]], path: Path) -> bool:
         ax.axhline(0.5, color="grey", lw=0.8, ls="--")
         ax.legend(fontsize=6)
         fig.tight_layout()
-        fig.savefig(path, dpi=110)
+        with atomic_path(path) as tmp:
+            fig.savefig(tmp, dpi=110)
     plt.close(fig)
     return plotted
 
@@ -108,7 +122,8 @@ def bar_plot(values: dict[str, float], path: Path, ylabel: str) -> None:
     ax.set_ylabel(ylabel)
     ax.axhline(0.5, color="grey", lw=0.8, ls="--")
     fig.tight_layout()
-    fig.savefig(path, dpi=110)
+    with atomic_path(path) as tmp:
+        fig.savefig(tmp, dpi=110)
     plt.close(fig)
 
 
@@ -210,6 +225,12 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
                 f"[{_fmt(s['wilson_lower'])}, {_fmt(s['wilson_upper'])}] | [{_fmt(b.get('lower'))}, "
                 f"{_fmt(b.get('upper'))}] | {_fmt(s['sensitivity_win_rate'])} | {_fmt(s['truncation_rate'])} |"
             )
+        forced = [] if smoke else query(
+            "SELECT agent_hash, result_id FROM test_ledger AS t WHERE experiment = ? AND forced = 1 AND "
+            "(SELECT COUNT(*) FROM test_ledger AS o WHERE o.agent_hash = t.agent_hash) > 1", (experiment,))  # fmt: skip
+        for agent_hash, result_id in forced:  # §8.2: forced re-evaluations are marked in the report
+            lines.append(f"\n**Erzwungene TEST-Wiederholung** (`--force-retest`): Agent {agent_hash[:12]}, "
+                         f"Auswertung {result_id}.")  # fmt: skip
         lines += ["", *_criteria_lines(experiment, exp, "smoke" if smoke else "test", smoke)]
         values = {e["agent"][-25:]: (_primary(e) or ("", {"win_rate": 0.0}))[1]["win_rate"] for e in primary_rows}
         bar_plot(values, fig_dir / "primary.png", "Siegquote")
@@ -269,9 +290,15 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
     # 4P.
     lines += ["## 4 Spieler: OpenSkill und Kingmaking", ""]
     km_dir = sub_artifacts("kingmaking")
-    km_files = sorted(f for f in km_dir.glob("kingmaking_*.json") if ("smoke" in f.name) == smoke)
-    for f in km_files[-3:]:
-        km = read_json(f)
+    newest: dict[tuple[str, str], tuple[Path, dict[str, Any]]] = {}  # latest per experiment and agent
+    for f in sorted(f for f in km_dir.glob("kingmaking_*.json") if ("smoke" in f.name) == smoke):
+        try:
+            data = read_json(f)
+        except ArtifactError as err:
+            log.warning("kingmaking result skipped: %s", err)
+            continue
+        newest[(str(data.get("experiment", f.stem.rsplit("_", 1)[0])), str(data.get("agent", "")))] = (f, data)
+    for f, km in newest.values():
         lines.append(
             f"- {f.name}: Kingmaking-Rate {_fmt(km.get('kingmaking_rate'))}, mittlere WS "
             f"{_fmt(km.get('ws_mean'))} ({km.get('points')} Punkte)"
@@ -297,7 +324,7 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
             lines.append(
                 f"| {name[-40:]} | {_fmt(rating['mu'])} | {_fmt(rating['sigma'])} | {_fmt(rating['ordinal'])} |"
             )
-    if not km_files and not fourp:
+    if not newest and not fourp:
         lines.append("Noch keine 4P-Auswertung vorhanden.")
     lines.append("")
     # Gates.
@@ -317,7 +344,7 @@ def generate_report(experiment: str, smoke: bool = False) -> Path:
                   f"Folgende Gates sind nicht erfüllt: {', '.join(failed)}. Diagnose: `propertyrl diagnose --run "
                   "runs/<id>` (Reward-Skala, Masken, Observation, Entropie, explained_variance, Dauerverteilung, "
                   "Gegnermix, gültige Zeilen). Fallbacks siehe docs/ROADMAP.md.", ""]  # fmt: skip
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    atomic_write_text(out, "\n".join(lines) + "\n")
     return out
 
 

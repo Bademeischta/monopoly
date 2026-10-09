@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 
+from propertyrl.engine.errors import ArtifactError
 from propertyrl.evaluation.duplicate import agent_seat, score
 from propertyrl.evaluation.stats import cluster_bootstrap, wilson
 from propertyrl.infra.storage import query
@@ -29,7 +30,12 @@ BOOT_REPS = 5000
 
 def load_records(eval_dir: Path) -> list[dict[str, Any]]:
     """Game records of one evaluation (games.parquet) with nested fields decoded."""
-    frame = pd.read_parquet(eval_dir / "games.parquet")
+    path = eval_dir / "games.parquet"
+    try:
+        frame = pd.read_parquet(path)
+    except (OSError, ValueError) as err:  # pyarrow.ArrowInvalid is a ValueError
+        raise ArtifactError(f"{path} is damaged or missing ({err}); run 'propertyrl doctor' for the repair step",
+                            details={"path": str(path)}) from err  # fmt: skip
     out = []
     for row in frame.to_dict("records"):
         for key in NESTED_FIELDS:

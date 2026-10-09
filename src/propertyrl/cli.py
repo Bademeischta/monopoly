@@ -167,7 +167,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
 
 def cmd_train(a: argparse.Namespace) -> int:
     from propertyrl.infra.config import load_experiment
-    from propertyrl.training.train import train
+    from propertyrl.training.train import train, train_or_reuse
 
     if a.resume:
         res = train("", 0, resume=Path(a.resume), wandb=a.wandb)
@@ -184,7 +184,10 @@ def cmd_train(a: argparse.Namespace) -> int:
     if a.smoke:
         seeds = seeds[:1]
     for seed in seeds:
-        res = train(a.experiment, seed, smoke=a.smoke, wandb=a.wandb)
+        if a.smoke or a.new:
+            res = train(a.experiment, seed, smoke=a.smoke, wandb=a.wandb)
+        else:  # finished runs are reused, interrupted ones resumed (A-140)
+            res = train_or_reuse(a.experiment, seed, wandb=a.wandb)
         _print({k: v for k, v in res.items() if k not in ("episode_steps", "episode_durations", "ev_history")})
     return 0
 
@@ -198,9 +201,12 @@ def cmd_sweep(a: argparse.Namespace) -> int:
 
 
 def cmd_selfplay(a: argparse.Namespace) -> int:
-    from propertyrl.training.train import train
+    from propertyrl.training.train import train, train_or_reuse
 
-    res = train("selfplay_official_2p", a.seed, smoke=a.smoke)
+    if a.smoke:
+        res = train("selfplay_official_2p", a.seed, smoke=True)
+    else:
+        res = train_or_reuse("selfplay_official_2p", a.seed)
     _print({"run_id": res["run_id"], "champion": res["champion"], "gates": res["champion_history"]})
     return 0
 
@@ -209,7 +215,7 @@ DEFAULT_EVAL_OPPONENTS = "strongest_baseline,strong_a_v1,strong_b_v1,greedy_v1,r
 
 
 def cmd_evaluate(a: argparse.Namespace) -> int:
-    from propertyrl.evaluation.evaluate import evaluate_agent
+    from propertyrl.evaluation.evaluate import evaluate_agent, stored_evaluation
     from propertyrl.infra.config import list_experiments, load_experiment
 
     split = "smoke" if a.smoke and a.split != "select" else a.split
@@ -225,9 +231,13 @@ def cmd_evaluate(a: argparse.Namespace) -> int:
             opponents = list(exp.evaluation.opponents)
         if players > 2:
             opponents = opponents[: players - 1]
-    res = evaluate_agent(a.agent, opponents, split, a.n_seeds, ruleset, players, a.experiment, a.force_retest,
-                         a.workers, smoke=a.smoke, label=label)  # fmt: skip
-    _print({"eval_id": res["eval_id"], "agent": res["agent"], "experiment": res["experiment"], "label": res["label"],
+    stored = None
+    if not (a.again or a.force_retest):  # a finished evaluation is taken over when the command is repeated
+        stored = stored_evaluation(a.agent, opponents, split, a.n_seeds, ruleset, players, a.experiment, a.smoke)
+    res = stored or evaluate_agent(a.agent, opponents, split, a.n_seeds, ruleset, players, a.experiment,
+                                   a.force_retest, a.workers, smoke=a.smoke, label=label)  # fmt: skip
+    _print({"eval_id": res["eval_id"], "reused": stored is not None, "agent": res["agent"],
+            "experiment": res["experiment"], "label": res["label"],
             "opponents": {k: {x: v[x] for x in ("games", "win_rate", "wilson_lower", "wilson_upper")}
                           for k, v in res["opponents"].items()}})  # fmt: skip
     return 0
@@ -248,6 +258,19 @@ def cmd_report(a: argparse.Namespace) -> int:
 
     print(generate_report(a.experiment, a.smoke))
     return 0
+
+
+def cmd_doctor(a: argparse.Namespace) -> int:
+    from propertyrl.infra.doctor import doctor
+
+    res = doctor(clean_temp=a.clean_temp)
+    print(f"PropertyRL-Zustand in {res['home']}")
+    for f in res["findings"]:
+        line = f"  [{f['level']}] {f['item']}: {f['detail']}"
+        print(line + (f"\n      -> {f['action']}" if f["action"] else ""))
+    print(f"Fehler: {res['errors']}")
+    print(f"Nächster Schritt: {res['next_step']}")
+    return 1 if res["errors"] else 0
 
 
 def cmd_gates(a: argparse.Namespace) -> int:
@@ -361,6 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--seed", type=int)
     sp.add_argument("--resume")
     sp.add_argument("--extended", action="store_true", help="nur extended_seeds (Abschlussbericht)")
+    sp.add_argument("--new", action="store_true",
+                    help="immer einen neuen Lauf beginnen (Standard: fertige Läufe gleicher Konfiguration "
+                         "wiederverwenden, abgebrochene fortsetzen)")  # fmt: skip
     sp.add_argument("--wandb", action="store_true", help="optional: technische Metriken an W&B (Standard offline)")
     add("sweep-gamma", cmd_sweep, "γ-Sweep", smoke=True)
     sp = add("selfplay", cmd_selfplay, "Self-Play-Training", smoke=True)
@@ -374,6 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--players", type=int, help="Standard: Spielerzahl des Experiments, sonst 2")
     sp.add_argument("--experiment", default="adhoc")
     sp.add_argument("--force-retest", action="store_true")
+    sp.add_argument("--again", action="store_true",
+                    help="erneut auswerten statt eine vorhandene gleiche Auswertung zu übernehmen")  # fmt: skip
     sp.add_argument("--workers", type=int)
     sp = add("kingmaking", cmd_kingmaking, "Kingmaking-Analyse (4P)", smoke=True)
     sp.add_argument("--agent")
@@ -383,6 +411,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("gates", cmd_gates, "Gate-Status G0-G8")
     sp.add_argument("--gate")
     sp.add_argument("--confirm-v-points", action="store_true", help="V1–V6 als vom Nutzer geprüft vermerken (G0)")
+    sp = add("doctor", cmd_doctor, "Zustand nach Abbruch oder Stromausfall prüfen, nächsten Schritt nennen")
+    sp.add_argument("--clean-temp", action="store_true", help="Temporärdateien abgebrochener Schreibvorgänge löschen")
     sp = add("diagnose", cmd_diagnose, "Diagnose-Checkliste eines Laufs", smoke=True)
     sp.add_argument("--run", required=True)
     sp.add_argument("--steps", type=int, default=2000)

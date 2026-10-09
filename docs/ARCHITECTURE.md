@@ -172,7 +172,10 @@ flowchart LR
   `multiprocessing` (spawn-sicher). Duplicate-Spezifikationen (2P beide Sitze, 4P vier Rotationen).
 - Speicherung: `artifacts/propertyrl.db` (Tabellen `runs`, `checkpoints`, `eval_summaries`, `test_ledger`,
   `benchmarks`, `gates`), JSON-Dateien je Lauf (`runs/<run_id>/run.json`, `training_state.json`),
-  Parquet je Auswertung, eingefrorene Entscheidungen in `artifacts/frozen/`.
+  Parquet je Auswertung, eingefrorene Entscheidungen in `artifacts/frozen/`. Alle Ergebnisdateien (nicht die
+  Logs) werden atomar und dauerhaft geschrieben (`storage.atomic_path`: Temporärdatei, `fsync`, `os.replace`); was zusammen
+  gilt, steht in einer SQLite-Transaktion (TEST-Auswertung und Ledger-Zeile, A-139). `propertyrl doctor`
+  prüft den Zustand nach einem Abbruch (A-142).
 - `PROPERTYRL_HOME` verlegt `artifacts/`, `runs/`, `reports/` (Tests nutzen ein temporäres Verzeichnis).
 - Gates G0–G8 werden ausschließlich aus Artefakten bewertet (Testreports, Coverage, Fuzz-/Markov-Berichte,
   Benchmark, eingefrorene Dateien, Auswertungen, Repro-Dateien).
@@ -181,5 +184,6 @@ flowchart LR
 
 `PropertyRLError` (Basis, trägt `game_seed`, `decision_index`, `seat`, optional Spiel-Log) mit
 `IllegalActionError`, `RuleViolationError`, `InvariantError`, `EngineWatchdogError`, `ReplayMismatchError`,
-`SchemaVersionError`, `ConfigError`, `SeedLedgerError`. Fehler in Evaluation und Fuzzing schreiben das
-Spiel-Log nach `artifacts/errors/` (`dump_error_log`).
+`SchemaVersionError`, `ConfigError`, `SeedLedgerError`, `ArtifactError` (unlesbare oder unvollständige
+Datei, mit Reparaturbefehl). Fehler in Evaluation und Fuzzing schreiben das Spiel-Log nach
+`artifacts/errors/` (`dump_error_log`).
