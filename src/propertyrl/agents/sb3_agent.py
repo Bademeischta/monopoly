@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from propertyrl.agents.base import Policy, filtered_mask
+from propertyrl.agents.base import Policy, learning_mask
 from propertyrl.agents.registry import make_policy
 from propertyrl.engine import Bid, BidLevel, TradeOffer
 from propertyrl.engine import decisions as D
@@ -62,6 +62,7 @@ class SB3Agent(Policy):
         env_cfg = self.meta.get("env_config", {})
         self.delegated = frozenset(env_cfg.get("delegated_kinds", DEFAULT_DELEGATED))
         self.delegation = make_policy(env_cfg.get("delegation", "delegation_v1"))
+        self.voluntary_mortgage = bool(env_cfg.get("voluntary_mortgage", False))
         self.name = f"sb3:{self.path.stem}"
         self.version = str(self.meta.get("model_hash", "unknown"))[:12]
 
@@ -96,8 +97,10 @@ class SB3Agent(Policy):
     def act_main(self, view: PublicState, legal: list[bool], rng: AgentRng) -> int:
         if view.phase == D.BUY_PHASE and "MAIN_BUY" in self.delegated:
             return self.delegation.act_main(view, legal, rng)
-        # Same anti-oscillation mask as in training (A-115).
-        mask = np.asarray(filtered_mask(view.window_actions, view.seat, legal), dtype=bool)
+        # Same mask as in training (anti-oscillation A-115, no voluntary mortgaging A-145).
+        mask = np.asarray(
+            learning_mask(view.window_actions, view.seat, legal, True, self.voluntary_mortgage), dtype=bool
+        )
         if mask.sum() == 1:
             return int(np.flatnonzero(mask)[0])
         return self.choose(self._obs(view), mask, rng)
@@ -105,7 +108,7 @@ class SB3Agent(Policy):
     def liquidate(self, view: PublicState, legal: list[bool], debt: dict[str, Any], rng: AgentRng) -> int:
         if "DEBT" in self.delegated:
             return self.delegation.liquidate(view, legal, debt, rng)
-        mask = np.asarray(filtered_mask(view.window_actions, view.seat, legal), dtype=bool)
+        mask = np.asarray(learning_mask(view.window_actions, view.seat, legal, False, True), dtype=bool)
         if mask.sum() == 1:
             return int(np.flatnonzero(mask)[0])
         return self.choose(self._obs(view), mask, rng)

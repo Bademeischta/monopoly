@@ -14,6 +14,7 @@ from propertyrl.infra.config import frozen_dir, load_experiment
 from propertyrl.infra.storage import write_json
 from propertyrl.training.smoke import smoke_settings
 from propertyrl.training.train import train_or_reuse
+from propertyrl.versions import ENV_VERSION
 
 log = logging.getLogger(__name__)
 SWEEP_OPPONENT = "roi_markov_v1"
@@ -75,6 +76,8 @@ def run_gamma_sweep(smoke: bool = False, experiment: str = "gamma_sweep") -> dic
         "pilots": pilots,
         "timesteps_per_pilot": timesteps,
         "smoke": smoke,
+        # gamma only means something together with the discount clock of this environment version (A-144).
+        "env_version": ENV_VERSION,
     }
     if not smoke:
         write_json(frozen_dir() / "gamma.json", result)

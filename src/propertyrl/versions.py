@@ -13,7 +13,7 @@ __version__ = "0.1.0"
 #: replays must then be regenerated (``propertyrl replay --regenerate``).
 ENGINE_VERSION = "0.1.0"
 #: Version of the environment semantics (decision core, auto-skip, rewards).
-ENV_VERSION = "env1.0"
+ENV_VERSION = "env1.1"
 #: Base version of the observation schema; the full version appends a hash of
 #: the schema and all normalisation constants (see env.observation).
 OBS_VERSION_BASE = "o1.0"

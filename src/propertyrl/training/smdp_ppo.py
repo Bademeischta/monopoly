@@ -66,8 +66,10 @@ class SMDPMaskablePPO(MaskablePPO):
 
             actions = actions.cpu().numpy()
             new_obs, rewards, dones, infos = env.step(actions)
-            # SMDP change: duration k of every transition (1 when the env reports none).
-            durations = np.array([float(info.get("duration", 1) or 1) for info in infos], dtype=np.float32)
+            # SMDP change: duration k of every transition (1 when the env reports none; 0 is a valid duration).
+            durations = np.array(
+                [1.0 if info.get("duration") is None else float(info["duration"]) for info in infos], dtype=np.float32
+            )
 
             self.num_timesteps += env.num_envs
 

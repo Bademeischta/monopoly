@@ -425,3 +425,27 @@ Schritt 6 geschlossen wurden:
    bestehender Self-Play-Fehler ist behoben: Die Champion-Datei wurde beim Ausdünnen gelöscht.
 8. **G3-Horizont des ersten Volllaufs** (A-143): Truncation 5,1 % bei H = 140 (Grenze < 5 %), auf Linux
    bitgleich nachgespielt. H bleibt nach Formel eingefroren, G3 FAIL wird als Negativergebnis berichtet.
+
+### Nachtrag 3: G4-Diagnose des ersten Volllaufs
+
+Der erste Volllauf (Windows, 16 Envs, 10 Mio. Schritte, γ = 0,999) verfehlte G4: 0,748 gegen `random_legal` und
+0,102 gegen `roi_markov_v1`. Gegen `strong_a_v1` fiel die SELECT-Siegquote nach 500.000 Schritten von 12 % auf
+~0 %. Die Diagnose umfasste den Nachbau des Laufs, Konsistenzprüfungen und acht Kurzexperimente:
+
+1. **Plumbing in Ordnung:** Heuristiken, durch die Trainingsumgebung gespielt, gewinnen wie im Harness
+   (`strong_a_v1` 100 % gegen `random_legal`, 55 % gegen `roi_markov_v1`). Belohnungen summieren sich auf ±1.
+   Training und Auswertung sehen identische Beobachtungen (3.853 Entscheidungen, 0 Abweichungen).
+2. **Uhr-Hacking (A-144):** Mit der Diskont-Uhr nach eigenen Entscheidungen (§6.2) erhöhte der verlierende Agent
+   seine Entscheidungen je Spiel (184 → 717), um die Niederlage wegzudiskontieren. Behoben durch die
+   Spielzeit-Uhr: Der Einbruch bleibt nicht mehr bei 0 hängen.
+3. **Hypotheken-Hebel (A-145):** Die Auktions-Delegation bietet höchstens das Bargeld. Der Agent belastete
+   deshalb vor Auktionen und löste danach wieder ab, rund 150 Zyklen je Spiel mit je 10 % Zinsen. Die Wertfunktion
+   schätzte schon in Runde 12 rund −1,0, es gab kein Lernsignal mehr. Ohne Wirkung blieben: A0 statt A1, ein
+   Entropie-Koeffizient von 0,001, N4, das Research-Ruleset und eine gemischte Curriculum-Stufe (alle 0–30 %).
+   Erst ohne freiwilliges Belasten erreichte der Agent nach 300.000 Schritten 56 % gegen `roi_markov_v1`
+   (Zwischenauswertung), bei ~12 Hypotheken und ~20 Bauten je Spiel.
+4. **Ergebnis mit beiden Korrekturen** (lokal, 4 Kerne, 2 Envs, γ = 0,999, Checkpoint nach 500.000 Schritten,
+   SELECT je 400 Spiele): 100 % gegen `random_legal`, 54,6 % gegen `roi_markov_v1`, 57,1 % gegen `strong_a_v1`,
+   60,4 % gegen `strong_b_v1`, 65,1 % gegen `greedy_v1`. Die G4-Kriterien sind damit schon nach 5 % des Budgets
+   erfüllt; maßgeblich bleibt der Volllauf auf dem Nutzerrechner.
+

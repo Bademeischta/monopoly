@@ -55,6 +55,7 @@ from propertyrl.training.multiseat_ppo import MultiSeatSMDPMaskablePPO
 from propertyrl.training.selfplay import SnapshotPool
 from propertyrl.training.smdp_ppo import SMDPMaskablePPO
 from propertyrl.training.smoke import apply_smoke
+from propertyrl.versions import ENV_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +81,12 @@ def frozen_gamma(default: float, smoke: bool = False) -> float:
     for name in ("gamma_smoke", "gamma") if smoke else ("gamma",):
         data = read_frozen(name)
         if data and "gamma" in data:
+            if data.get("env_version") != ENV_VERSION:
+                # gamma is tied to the discount clock of the environment version that swept it (A-144).
+                raise ConfigError(
+                    f"artifacts/frozen/{name}.json was frozen for environment version "
+                    f"{data.get('env_version', 'env1.0')}, not {ENV_VERSION}; run 'propertyrl sweep-gamma' again"
+                )
             return float(data["gamma"])
     return float(default)
 

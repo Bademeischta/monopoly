@@ -51,12 +51,29 @@ def test_pbrs_telescoping(smdp: bool) -> None:
 
 
 def test_smdp_durations() -> None:
-    env = PropertySingleAgentEnv(cfg(smdp=True))
+    env = PropertySingleAgentEnv(cfg(smdp=True, clock="decisions"))
     _, steps, _ = _episode(env, 3)
     assert any(k > 1 for _, k in steps)
     env = PropertySingleAgentEnv(cfg(smdp=False))
     _, steps, _ = _episode(env, 3)
     assert all(k == 1 for _, k in steps)
+
+
+def test_round_clock_measures_game_time() -> None:
+    """A-144: k counts elapsed rounds, so extra decisions within a round never discount the outcome."""
+    env = PropertySingleAgentEnv(cfg(smdp=True, safety_horizon_rounds=10_000))
+    for seed in range(4):
+        env.reset(seed=seed)
+        start_round = env.core.engine.state.round_index
+        rng = np.random.default_rng(seed)
+        ks = []
+        while True:
+            _, _, term, trunc, info = env.step(int(rng.choice(np.flatnonzero(env.action_masks()))))
+            ks.append(info["duration"])
+            if term or trunc:
+                break
+        assert sum(ks) == env.core.engine.state.round_index - start_round
+        assert 0 in ks and all(k >= 0 for k in ks)
 
 
 def test_a0_terminal_only() -> None:
@@ -193,3 +210,31 @@ def test_env_config_roundtrip() -> None:
         EnvConfig(n_players=5)
     assert "AUCTION_BID" in EnvConfig(delegated_kinds=("DEBT",)).delegated_kinds
     assert A.N_ACTIONS == 106
+
+
+def test_learning_seat_cannot_mortgage_voluntarily() -> None:
+    """A-145: no MORTGAGE action in MAIN windows of a learning seat; the same mask is used in evaluation."""
+    from propertyrl.agents.base import learning_mask
+
+    seen_main_with_property = 0
+    for voluntary in (False, True):
+        env = PropertySingleAgentEnv(cfg(voluntary_mortgage=voluntary))
+        env.reset(seed=11)
+        rng = np.random.default_rng(11)
+        for _ in range(4000):
+            core = env.core
+            seat = core.current
+            st = core.engine.state
+            mask = env.action_masks()
+            mort = mask[A.MORTGAGE_BASE : A.UNMORTGAGE_BASE]
+            if any(st.owner[p] == seat and not st.mortgaged[p] for p in range(len(st.owner))):
+                seen_main_with_property += 1
+                if not voluntary:
+                    assert not mort.any() or mask.sum() == mort.sum()
+            view = core.engine.public_view(seat)
+            same = learning_mask(view.window_actions, seat, core.engine.legal_mask(), True, voluntary)
+            assert list(mask) == same
+            _, _, term, trunc, _ = env.step(int(rng.choice(np.flatnonzero(mask))))
+            if term or trunc:
+                env.reset()
+    assert seen_main_with_property > 100

@@ -11,6 +11,7 @@ from propertyrl.evaluation import seeds
 from propertyrl.infra.doctor import ERROR, INFO, WARN, doctor
 from propertyrl.infra.runmeta import build_run_meta, save_run_meta
 from propertyrl.infra.storage import write_json
+from propertyrl.versions import ENV_VERSION
 
 
 @pytest.fixture
@@ -108,8 +109,9 @@ def test_next_step_respects_the_g4_stop_rule(fresh_home: Path, monkeypatch: pyte
     (fresh_home / "artifacts" / "test-reports" / "junit.xml").write_text("<testsuites/>", encoding="utf-8")
     write_json(fresh_home / "artifacts" / "roundrobin" / "latest.json", {"strongest": "strong_a_v1"})
     frozen = fresh_home / "artifacts" / "frozen"
+    gamma = {"gamma": 0.999, "env_version": ENV_VERSION}
     for name, data in (("strongest_baseline", {"policy": "strong_a_v1"}), ("horizon", {"horizon_2p": 140}),
-                       ("test_size", {"2p": 1200}), ("gamma", {"gamma": 0.999})):  # fmt: skip
+                       ("test_size", {"2p": 1200}), ("gamma", gamma)):  # fmt: skip
         write_json(frozen / f"{name}.json", data)
     monkeypatch.setattr(train_mod, "find_checkpoint", lambda *args, **kwargs: fresh_home / "best_select.zip")
     summary = {"opponents": {"random_legal": {"win_rate": 0.95}, "roi_markov_v1": {"win_rate": 0.42}}}
@@ -121,3 +123,14 @@ def test_next_step_respects_the_g4_stop_rule(fresh_home: Path, monkeypatch: pyte
     record_eval_summary("select_y", "h2", "mcr_official_2p", "select", "OFFICIAL_US_CLASSIC_2008", 200, 800,
                         ["random_legal", "roi_markov_v1"], summary, fresh_home / "e2", False)  # fmt: skip
     assert doctor()["next_step"] == "Schritt 7: propertyrl pipeline --experiment mcr_official_2p"
+
+
+def test_gamma_from_an_older_environment_version_means_step_6_again(fresh_home: Path) -> None:
+    (fresh_home / "artifacts" / "test-reports").mkdir(parents=True)
+    (fresh_home / "artifacts" / "test-reports" / "junit.xml").write_text("<testsuites/>", encoding="utf-8")
+    write_json(fresh_home / "artifacts" / "roundrobin" / "latest.json", {"strongest": "strong_a_v1"})
+    frozen = fresh_home / "artifacts" / "frozen"
+    for name, data in (("strongest_baseline", {"policy": "strong_a_v1"}), ("horizon", {"horizon_2p": 140}),
+                       ("test_size", {"2p": 1200}), ("gamma", {"gamma": 0.999})):  # fmt: skip
+        write_json(frozen / f"{name}.json", data)
+    assert doctor()["next_step"].startswith("Schritt 6 neu")

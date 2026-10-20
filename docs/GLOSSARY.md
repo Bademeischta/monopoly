@@ -5,7 +5,7 @@
 | MCR (Minimal Complete Result) | 2-Spieler-Agent, der Z3 (§8.4) auf TEST erfüllt. |
 | Genuine Entscheidung | Entscheidungspunkt eines Lernsitzes mit mindestens 2 legalen Aktionen. |
 | Forced Entscheidung | Entscheidungspunkt mit genau 1 legalen Aktion; bei Auto-Skip automatisch ausgeführt. |
-| Makroschritt | Von einer genuinen Entscheidung eines Lernsitzes bis zu seiner nächsten genuinen Entscheidung oder seinem Episodenende. Dauer k = 1 + Anzahl automatisch ausgeführter forced Entscheidungen dieses Sitzes. |
+| Makroschritt | Von einer genuinen Entscheidung eines Lernsitzes bis zu seiner nächsten genuinen Entscheidung oder seinem Episodenende. Dauer k = Anzahl der dabei vergangenen Spielrunden (Diskont-Uhr nach Spielzeit, A-144); mit `clock: decisions` wie in §6.2 1 + Anzahl automatisch ausgeführter forced Entscheidungen dieses Sitzes. |
 | Lernsitz | Sitz, dessen Entscheidungen die aktuell trainierte Policy trifft und deren Transitionen als Trainingsdaten gesammelt werden. |
 | Single-Agent RL (MCR) | Genau ein Lernsitz; alle anderen Sitze sind Umgebung. |
 | Population Best Response (Self-Play 2P) | Ein Lernsitz, Gegner aus Snapshot-Pool und Baselines. |

@@ -119,7 +119,8 @@ sequenceDiagram
 - führt Gegner- und delegierte Entscheidungen automatisch aus (Delegation `delegation_v1` für
   TRADE_OFFER, TRADE_RESPONSE, AUCTION_BID, DEBT; N4 zusätzlich MAIN_BUY),
 - überspringt forced Entscheidungen der Lernsitze (Auto-Skip, nach Anti-Oszillationsfilter, A-115) und
-  zählt die Dauer k je Makroschritt,
+  misst die Dauer k je Makroschritt in vergangenen Spielrunden (Diskont-Uhr nach Spielzeit, A-144;
+  `clock: decisions` zählt wie in §6.2 die eigenen Entscheidungen),
 - verwaltet je Lernsitz eine offene Transition (Φ beim Start, k, Zusatzreward) und schließt sie bei der
   nächsten genuinen Entscheidung oder am Episodenende (`Closed`),
 - prüft den Safety-Horizon und schneidet alle offenen Transitionen mit `terminal_observation` ab,

@@ -151,6 +151,21 @@ def filtered_mask(window_actions: Sequence[tuple[int, int]], seat: int, legal: S
     return out
 
 
+def learning_mask(
+    window_actions: Sequence[tuple[int, int]], seat: int, legal: Sequence[bool], main: bool, voluntary_mortgage: bool
+) -> list[bool]:
+    """Mask of an RL learning seat: anti-oscillation (A-115) and, in MAIN windows, no voluntary mortgaging (A-145).
+
+    Mortgaging stays possible where it is forced (debt resolution); the mask falls back to the anti-oscillation
+    mask if nothing else would remain. Training and evaluation use this same function.
+    """
+    mask = filtered_mask(window_actions, seat, legal)
+    if voluntary_mortgage or not main:
+        return mask
+    strict = [ok and not (A.MORTGAGE_BASE <= i < A.UNMORTGAGE_BASE) for i, ok in enumerate(mask)]
+    return strict if any(strict) else mask
+
+
 def finish_action(view: PublicState, legal: list[bool]) -> int:
     """The action that ends the current window/phase (ROLL, END_PHASE, DECLINE) or the first legal one."""
     for a in (A.ROLL, A.END_PHASE, A.DECLINE):

@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from propertyrl.agents.base import Policy, decision_kind_key, filtered_mask, respond_decision
+from propertyrl.agents.base import Policy, decision_kind_key, learning_mask, respond_decision
 from propertyrl.agents.registry import make_policy
 from propertyrl.engine import Engine, EngineOptions, IllegalActionError
 from propertyrl.engine import actions as A
@@ -29,6 +29,8 @@ from propertyrl.infra.config import load_setup
 
 ALWAYS_DELEGATED = frozenset({"TRADE_OFFER", "TRADE_RESPONSE", "AUCTION_BID"})
 DEFAULT_DELEGATED = ("TRADE_OFFER", "TRADE_RESPONSE", "AUCTION_BID", "DEBT")
+#: SMDP discount clocks (A-144): elapsed game rounds (default) or the seat's own decisions (§6.2 as specified).
+CLOCKS = ("rounds", "decisions")
 
 
 @dataclass
@@ -45,6 +47,11 @@ class EnvConfig:
     terminal_rewards_4p: tuple[float, ...] = (1.0, 1.0 / 3.0, -1.0 / 3.0, -1.0)
     auto_skip: bool = True
     smdp: bool = True
+    #: Discount clock k of a macro step: game rounds elapsed ("rounds", A-144) or own decisions ("decisions",
+    #: §6.2). The decision clock can be advanced by the agent itself, see docs/ASSUMPTIONS.md A-144.
+    clock: str = "rounds"
+    #: Voluntary mortgaging in MAIN windows of learning seats (A-145); debt resolution may always mortgage.
+    voluntary_mortgage: bool = False
     delegation: str = "delegation_v1"
     delegated_kinds: tuple[str, ...] = DEFAULT_DELEGATED
     trade_enabled: bool = True
@@ -57,6 +64,8 @@ class EnvConfig:
     def __post_init__(self) -> None:
         if not 2 <= self.n_players <= 4:
             raise ValueError("RL environments support 2-4 players")
+        if self.clock not in CLOCKS:
+            raise ValueError(f"clock must be one of {CLOCKS}")
         if isinstance(self.opponents, dict):
             self.opponents = OpponentConfig.from_dict(self.opponents)
         self.delegated_kinds = tuple(sorted(set(self.delegated_kinds) | ALWAYS_DELEGATED))
@@ -130,6 +139,7 @@ class DecisionCore:
         self.rngs: dict[int, AgentRng] = {}
         self.open: dict[int, bool] = {}
         self.ticks: dict[int, int] = {}
+        self.round_start: dict[int, int] = {}
         self.phi_start: dict[int, float] = {}
         self.phi_now: dict[int, float] = {}
         self.extra: dict[int, float] = {}
@@ -178,6 +188,7 @@ class DecisionCore:
         self.rngs = {s: AgentRng(game_seed, s) for s in range(cfg.n_players)}
         self.open = {s: False for s in self.learning}
         self.ticks = {s: 0 for s in self.learning}
+        self.round_start = {s: 0 for s in self.learning}
         self.phi_start = {s: 0.0 for s in self.learning}
         self.phi_now = {s: 0.0 for s in self.learning}
         self.extra = {s: 0.0 for s in self.learning}
@@ -211,7 +222,9 @@ class DecisionCore:
         return np.asarray(self._mask_for(self.current, self.engine.legal_mask()), dtype=bool)
 
     def _mask_for(self, seat: int, legal: list[bool]) -> list[bool]:
-        return filtered_mask(self.engine.state.window_actions, seat, legal)
+        d = self.engine.pending()
+        main = d is not None and d.kind == D.MAIN
+        return learning_mask(self.engine.state.window_actions, seat, legal, main, self.cfg.voluntary_mortgage)
 
     # ------------------------------------------------------------------ stepping
     def act(self, action: int) -> list[Closed]:
@@ -233,6 +246,7 @@ class DecisionCore:
         self.phi_start[seat] = self.phi_now[seat]
         self.open[seat] = True
         self.ticks[seat] = 1
+        self.round_start[seat] = eng.state.round_index
         self.extra[seat] = 0.0
         self.current = None
         eng.apply(a)
@@ -324,7 +338,7 @@ class DecisionCore:
     ) -> Closed:
         eng = self.engine
         st = eng.state
-        duration = self.ticks[seat] if self.cfg.smdp else 1
+        duration = self.duration(seat)
         terminal = 0.0
         if terminated:
             winner = eng.result().winner if st.game_over else None
@@ -338,6 +352,18 @@ class DecisionCore:
         self.open[seat] = False
         obs = self.observe(seat) if truncated else None
         return Closed(seat, float(reward), int(duration), terminated, truncated, obs)
+
+    def duration(self, seat: int) -> int:
+        """Discount clock k of the open macro step of ``seat`` (§6.2, A-144).
+
+        Without SMDP every step counts 1. The round clock measures game time, so decisions that do not advance
+        the game (e.g. mortgaging and redeeming within a turn) cannot discount a coming loss away.
+        """
+        if not self.cfg.smdp:
+            return 1
+        if self.cfg.clock == "rounds":
+            return self.engine.state.round_index - self.round_start[seat]
+        return self.ticks[seat]
 
     # ------------------------------------------------------------------ episode statistics
     def episode_info(self, seat: int) -> dict[str, Any]:

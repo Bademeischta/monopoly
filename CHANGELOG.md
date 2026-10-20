@@ -25,6 +25,13 @@ SemVer.
 - Wiederholte 4P-Pipelines übernehmen das vorhandene Kingmaking-Ergebnis.
 
 ### Behoben
+- **SMDP-Diskont-Uhr nach Spielzeit (A-144, Environment-Version `env1.1`):** Bisher zählte die Uhr die eigenen
+  Entscheidungen des Agenten (§6.2). Der Agent nutzte das, um eine absehbare Niederlage mit wirkungslosen
+  Zügen wegzudiskontieren (G4 FAIL im ersten Volllauf). Die Dauer k zählt jetzt vergangene Spielrunden.
+  `gamma.json` trägt die Environment-Version; ein älteres wird abgelehnt, Schritt 6 ist zu wiederholen.
+- **Kein freiwilliges Belasten für RL-Lernsitze (A-145):** Über Hypotheken steuerte der Agent das Gebotslimit seiner
+  Auktions-Delegation und verlor durch Belasten-Ablösen-Zyklen (je 10 % Zinsen) gegen `roi_markov_v1` fast
+  jedes Spiel. Belastet wird nur noch bei Schulden; `voluntary_mortgage: true` stellt das alte Verhalten her.
 - Ein durch eine Ausnahme abgebrochener Lauf galt als „completed“ und hätte wiederverwendet und auf TEST
   ausgewertet werden können. Er heißt jetzt `failed` und wird fortgesetzt (A-140).
 - Unlesbare Seed-Dateien, `run.json` und `training_state.json` führten zu unverständlichen Abbrüchen. Jetzt

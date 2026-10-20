@@ -150,6 +150,10 @@ propertyrl gates --gate G3
 
 ## Schritt 6 – G4: γ-Sweep und erster Agent
 
+Seit Environment-Version `env1.1` (Diskont-Uhr nach Spielzeit, A-144; kein freiwilliges Belasten für Lernsitze,
+A-145) gelten Läufe, Checkpoints und `gamma.json` von `env1.0` nicht mehr. Wer Schritt 6 schon mit `env1.0`
+ausgeführt hat, wiederholt ihn vollständig ab `sweep-gamma`. `propertyrl doctor` meldet das als „Schritt 6 neu“.
+
 ```bash
 propertyrl sweep-gamma 2>&1 | tee -a logs/sweep.log                        # 3 Piloten à 2 Mio. Schritte
 propertyrl train --experiment mcr_official_2p --seed 1 2>&1 | tee -a logs/mcr_s1.log

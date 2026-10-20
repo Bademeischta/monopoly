@@ -21,6 +21,7 @@ from propertyrl.engine.errors import ArtifactError
 from propertyrl.engine.hashing import sha256_hex
 from propertyrl.infra.config import FROZEN_SOURCES, list_experiments, load_experiment
 from propertyrl.infra.storage import TMP_MARKER, connect, home_dir, read_json
+from propertyrl.versions import ENV_VERSION
 
 log = logging.getLogger(__name__)
 ERROR = "FEHLER"
@@ -322,6 +323,9 @@ def next_step(home: Path, db_ok: bool) -> str:
     for name, step in (("strongest_baseline", 5), ("horizon", 5), ("test_size", 5), ("gamma", 6)):
         if _json_state(frozen / f"{name}.json") != "ok":
             return f"Schritt {step}: {FROZEN_SOURCES[name]}"
+    if read_json(frozen / "gamma.json").get("env_version") != ENV_VERSION:
+        return (f"Schritt 6 neu: gamma.json stammt aus einer älteren Environment-Version (Diskont-Uhr, A-144); "
+                f"{FROZEN_SOURCES['gamma']}, danach Training und Auswertung von Schritt 6")  # fmt: skip
     if not db_ok or find_checkpoint("mcr_official_2p", 1, False) is None:
         return "Schritt 6: propertyrl train --experiment mcr_official_2p --seed 1"
     with connect() as conn:
