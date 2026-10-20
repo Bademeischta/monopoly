@@ -23,6 +23,7 @@ def apply_smoke(exp: ExperimentConfig, ppo: PPOConfig) -> tuple[ExperimentConfig
         update={
             "n_envs": so.n_envs,
             "n_steps": so.n_steps,
+            "rollout_size": so.n_envs * so.n_steps,
             "batch_size": so.batch_size,
             "total_timesteps": timesteps,
             "checkpoint_interval": so.checkpoint_interval,

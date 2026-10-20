@@ -121,7 +121,9 @@ propertyrl gates
 
 Erwartung: `G1: PASS` und `G2: PASS`, Fuzz/Markov/Maskentest jeweils „(Gate-Größe)“. Aus dem Benchmark nur
 `recommendation.vec_env` übernehmen: Steht dort `subproc`, in `configs/training/ppo_default.yaml`
-`vec_env: subproc` setzen und committen; `n_envs: 16` bleibt (wird automatisch auf die Kernzahl begrenzt).
+`vec_env: subproc` setzen und committen; `n_envs: 16` bleibt (wird automatisch auf die Kernzahl und einen
+Teiler von `rollout_size` begrenzt). `rollout_size: 512` nicht ändern: Ein PPO-Update umfasst damit auf jedem
+Rechner 512 Übergänge, unabhängig von der Kernzahl (A-146).
 Liegt `hours_per_run` + `eval_hours_per_run` aus `plan` nahe 12 h, `budget_hours` erhöhen.
 
 ## Schritt 5 – G3: Baselines und Horizont
@@ -153,6 +155,12 @@ propertyrl gates --gate G3
 Seit Environment-Version `env1.1` (Diskont-Uhr nach Spielzeit, A-144; kein freiwilliges Belasten für Lernsitze,
 A-145) gelten Läufe, Checkpoints und `gamma.json` von `env1.0` nicht mehr. Wer Schritt 6 schon mit `env1.0`
 ausgeführt hat, wiederholt ihn vollständig ab `sweep-gamma`. `propertyrl doctor` meldet das als „Schritt 6 neu“.
+
+Dasselbe gilt seit A-146 (fester PPO-Rollout von 512 Übergängen statt `n_envs × 256`) für ein `gamma.json`, dessen
+Piloten mit einem anderen Rollout trainiert wurden. `doctor` meldet dann „Schritt 6 neu: … anderen PPO-Rollout“.
+Die drei Befehle unten genügen, `--new` und `--again` sind nicht nötig. Der Sweep trainiert neue Piloten, `train`
+startet einen neuen Lauf, weil sich die Konfiguration geändert hat, und `evaluate` wertet dessen Checkpoint aus.
+G4 bewertet nur die Auswertungen des aktuellen Seed-1-Laufs. Ältere Läufe zählen nicht mehr, weder für noch gegen G4.
 
 ```bash
 propertyrl sweep-gamma 2>&1 | tee -a logs/sweep.log                        # 3 Piloten à 2 Mio. Schritte
@@ -263,6 +271,7 @@ done
 | Terminal geschlossen, Strom weg, Absturz, Abbruch | `propertyrl doctor`, dann denselben Befehl neu starten (Training wird am neuesten intakten Checkpoint fortgesetzt, fertige Läufe und Auswertungen werden übernommen) |
 | `ArtifactError … is damaged or incomplete` | `propertyrl doctor` nennt die Datei und den Befehl, der sie neu erzeugt |
 | `… needs the frozen artifacts of the earlier runbook steps first` | Der genannte frühere Schritt fehlt; ihn zuerst ausführen |
+| `gamma.json was frozen for PPO rollout … / environment version …` | Schritt 6 ab `sweep-gamma` wiederholen (A-144, A-146) |
 | `SeedLedgerError` | Agent wurde schon auf TEST ausgewertet – nicht erzwingen; `--force-retest` nur bewusst, wird im TEST-Ledger und im Bericht markiert |
 | `EngineWatchdogError` | Log in `artifacts/errors/` sichern, Fehler melden; betroffenen Lauf mit `--resume` fortsetzen |
 | Gate FAIL | Fallbacks in `docs/ROADMAP.md`, Diagnose mit `propertyrl diagnose --run runs/<id>` |

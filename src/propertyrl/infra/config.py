@@ -115,6 +115,9 @@ class PolicyConfig(_Strict):
 class PPOConfig(_Strict):
     n_envs: int = Field(default=16, gt=0)
     n_steps: int = Field(default=256, gt=0)
+    #: Transitions per PPO update over all environments; when set, n_envs and n_steps are derived from it so the
+    #: update schedule does not depend on the number of CPU cores (A-146).
+    rollout_size: int | None = Field(default=None, gt=1)
     batch_size: int = Field(default=512, gt=1)
     n_epochs: int = Field(default=10, gt=0)
     learning_rate: float = Field(default=3e-4, gt=0)

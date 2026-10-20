@@ -309,7 +309,8 @@ def _done(experiment: str) -> bool:
 
 def next_step(home: Path, db_ok: bool) -> str:
     """The next runbook step (docs/TRAINING_GUIDE.md) judged from the stored artifacts and the stop rules."""
-    from propertyrl.training.train import find_checkpoint
+    from propertyrl.infra.gates import current_select_rows
+    from propertyrl.training.train import effective_rollout, find_checkpoint, matches_current_settings
 
     db = home / "artifacts" / "propertyrl.db"
     has_results = any((home / "runs").glob("*/run.json")) or any((home / "artifacts" / "eval").glob("*"))
@@ -323,15 +324,18 @@ def next_step(home: Path, db_ok: bool) -> str:
     for name, step in (("strongest_baseline", 5), ("horizon", 5), ("test_size", 5), ("gamma", 6)):
         if _json_state(frozen / f"{name}.json") != "ok":
             return f"Schritt {step}: {FROZEN_SOURCES[name]}"
-    if read_json(frozen / "gamma.json").get("env_version") != ENV_VERSION:
+    gamma = read_json(frozen / "gamma.json")
+    if gamma.get("env_version") != ENV_VERSION:
         return (f"Schritt 6 neu: gamma.json stammt aus einer älteren Environment-Version (Diskont-Uhr, A-144); "
                 f"{FROZEN_SOURCES['gamma']}, danach Training und Auswertung von Schritt 6")  # fmt: skip
-    if not db_ok or find_checkpoint("mcr_official_2p", 1, False) is None:
-        return "Schritt 6: propertyrl train --experiment mcr_official_2p --seed 1"
-    with connect() as conn:
-        select = conn.execute("SELECT COUNT(*) FROM eval_summaries WHERE experiment = 'mcr_official_2p' AND "
-                              "split = 'select' AND smoke = 0").fetchone()[0]  # fmt: skip
     mcr_tested = _test_agents("mcr_official_2p") > 0
+    if not mcr_tested and gamma.get("rollout_size") != effective_rollout("mcr_official_2p"):
+        return (f"Schritt 6 neu: gamma.json stammt aus Piloten mit einem anderen PPO-Rollout (A-146); "
+                f"{FROZEN_SOURCES['gamma']}, danach Training und Auswertung von Schritt 6")  # fmt: skip
+    ckpt = find_checkpoint("mcr_official_2p", 1, False) if db_ok else None
+    if ckpt is None or (not mcr_tested and not matches_current_settings(ckpt.parent)):
+        return "Schritt 6: propertyrl train --experiment mcr_official_2p --seed 1"
+    select = current_select_rows()
     if not select and not mcr_tested:
         return ("Schritt 6: propertyrl evaluate --agent experiment:mcr_official_2p:1 --split select --experiment "
                 "mcr_official_2p, danach propertyrl gates --gate G4")  # fmt: skip

@@ -13,7 +13,7 @@ from propertyrl.evaluation.seeds import subset
 from propertyrl.infra.config import frozen_dir, load_experiment
 from propertyrl.infra.storage import write_json
 from propertyrl.training.smoke import smoke_settings
-from propertyrl.training.train import train_or_reuse
+from propertyrl.training.train import resolve, train_or_reuse
 from propertyrl.versions import ENV_VERSION
 
 log = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ def run_gamma_sweep(smoke: bool = False, experiment: str = "gamma_sweep") -> dic
     n_seeds = smoke_settings().select_eval_seeds if smoke else 200
     seeds = subset("SMOKE" if smoke else "SELECT", start=0, end=n_seeds)
     pilots = []
+    _, ppo, _ = resolve("mcr_official_2p", exp.sweep.seed, smoke, gamma=exp.sweep.gammas[0], timesteps=timesteps)
     for g in exp.sweep.gammas:
         # Finished pilots are reused and interrupted ones resumed, so a re-run continues the sweep (A-140).
         res = train_or_reuse("mcr_official_2p", exp.sweep.seed, smoke, gamma=g, timesteps=timesteps, run_tag=f"g{g}")
@@ -78,6 +79,8 @@ def run_gamma_sweep(smoke: bool = False, experiment: str = "gamma_sweep") -> dic
         "smoke": smoke,
         # gamma only means something together with the discount clock of this environment version (A-144).
         "env_version": ENV_VERSION,
+        # ... and to the PPO rollout of the pilots (A-146).
+        "rollout_size": ppo.n_envs * ppo.n_steps,
     }
     if not smoke:
         write_json(frozen_dir() / "gamma.json", result)

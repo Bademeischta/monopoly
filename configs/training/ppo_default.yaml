@@ -1,6 +1,7 @@
 # PPO hyper-parameters (§7.3). gamma is overridden by artifacts/frozen/gamma.json after the sweep.
-n_envs: 16            # capped to the number of CPU cores
-n_steps: 256          # rollout = n_envs * n_steps = 4096
+n_envs: 16            # upper bound; capped to the number of CPU cores and to a divisor of rollout_size
+n_steps: 256          # ignored while rollout_size is set (n_steps = rollout_size / n_envs)
+rollout_size: 512     # transitions per PPO update on every machine (A-146; 4096 learned far too slowly)
 batch_size: 512
 n_epochs: 10
 learning_rate: 0.0003

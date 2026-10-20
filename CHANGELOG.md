@@ -25,6 +25,11 @@ SemVer.
 - Wiederholte 4P-Pipelines übernehmen das vorhandene Kingmaking-Ergebnis.
 
 ### Behoben
+- **PPO-Rollout unabhängig von der Kernzahl (A-146):** Bisher war der Rollout `n_envs` × 256 mit `n_envs` =
+  Kernzahl. Ein 16-Kern-Rechner machte damit achtmal weniger Policy-Updates je Schritt als ein 2-Env-Lauf und
+  verfehlte G4 (35,6 % gegen `roi_markov_v1`). `rollout_size: 512` legt den Rollout fest, `n_envs` und `n_steps`
+  ergeben sich daraus. `gamma.json` trägt den Rollout; ein älteres wird abgelehnt, und Schritt 6 ist zu
+  wiederholen. G4 und `doctor` werten nur den aktuellen Seed-1-Lauf.
 - **SMDP-Diskont-Uhr nach Spielzeit (A-144, Environment-Version `env1.1`):** Bisher zählte die Uhr die eigenen
   Entscheidungen des Agenten (§6.2). Der Agent nutzte das, um eine absehbare Niederlage mit wirkungslosen
   Zügen wegzudiskontieren (G4 FAIL im ersten Volllauf). Die Dauer k zählt jetzt vergangene Spielrunden.

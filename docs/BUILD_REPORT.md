@@ -449,3 +449,22 @@ Der erste Volllauf (Windows, 16 Envs, 10 Mio. Schritte, γ = 0,999) verfehlte G4
    60,4 % gegen `strong_b_v1`, 65,1 % gegen `greedy_v1`. Die G4-Kriterien sind damit schon nach 5 % des Budgets
    erfüllt; maßgeblich bleibt der Volllauf auf dem Nutzerrechner.
 
+### Nachtrag 4: G4-Diagnose des zweiten Volllaufs
+
+Der zweite Volllauf (Windows, 16 Kerne, `env1.1`, Sweep-γ = 0,99, 10 Mio. Schritte) verfehlte G4 erneut, diesmal
+nur am zweiten Kriterium. SELECT ergab 100 % gegen `random_legal`, aber nur 35,6 % gegen `roi_markov_v1`. Die
+Korrektur A-145 wirkte: 17–20 Hypotheken je Spiel statt ~150. Gegen `roi_markov_v1` erreichte der Agent die
+Curriculum-Schwelle aber in 3 Mio. Schritten nie (21 %). Der Vergleich mit Nachtrag 3 zeigte zwei Unterschiede.
+Lokal liefen 2 Envs statt 16, also ein Rollout von 512 statt 4.096 Übergängen je PPO-Update, und γ war 0,999 statt
+0,99. Vergleichsläufe mit dem Code von `a40ba5f` (Seed 1, gleiche eingefrorene Artefakte) trennen beide Einflüsse
+(Werte in A-146). Der Rollout ist der Hauptgrund: Mit 16 × 256 lag der Agent auch nach 900.000 Schritten bei
+26–38 %. Mit Rollout 512 überschritt er die Schwelle von 55 % nach 300.000 bis 500.000 Schritten, egal ob als
+2 × 256, 4 × 128 oder 16 × 32. γ = 0,999 lernte dabei schneller als γ = 0,99. Der Lauf mit 2 × 256 und γ = 0,999
+reproduziert Nachtrag 3 bitgleich (0,571 gegen `strong_a_v1` nach 500.000 Schritten), die Monkeypatches der
+damaligen Experimente verfälschten also nichts.
+
+Korrektur (A-146): fester `rollout_size: 512`. Daraus ergeben sich `n_envs` und `n_steps` je Rechner, der
+Update-Takt hängt nicht mehr von der Kernzahl ab. `gamma.json` trägt den Rollout seiner Piloten. Das
+Sweep-Ergebnis des zweiten Volllaufs (γ = 0,99 bei Rollout 4.096) wird daher abgelehnt, und Schritt 6 wird ab
+`sweep-gamma` wiederholt. G4 und `doctor` werten nur noch den aktuellen Seed-1-Lauf. Ein älterer Lauf mit anderem
+γ oder Rollout zählt weder für noch gegen G4.

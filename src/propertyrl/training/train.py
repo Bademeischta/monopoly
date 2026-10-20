@@ -73,19 +73,46 @@ class LayerNormExtractor(BaseFeaturesExtractor):
 
 
 # ---------------------------------------------------------------------------- configuration
-def frozen_gamma(default: float, smoke: bool = False) -> float:
+def rollout_shape(ppo: PPOConfig, cores: int) -> tuple[int, int]:
+    """(n_envs, n_steps) of a run on a machine with ``cores`` CPU cores.
+
+    With ``rollout_size`` the update schedule is the same on every machine: n_envs is the largest divisor of
+    the rollout that fits the core count and n_steps fills the rest (A-146). Without it n_envs is only capped.
+    """
+    cap = max(1, min(ppo.n_envs, cores))
+    if ppo.rollout_size is None:
+        return cap, ppo.n_steps
+    n_envs = max(d for d in range(1, cap + 1) if ppo.rollout_size % d == 0)
+    return n_envs, ppo.rollout_size // n_envs
+
+
+def gamma_mismatch(data: dict[str, Any], rollout: int) -> str | None:
+    """Why a frozen gamma file does not fit this code, or None.
+
+    gamma is tied to the discount clock of the environment version (A-144) and to the PPO rollout it was
+    swept with (A-146).
+    """
+    if data.get("env_version") != ENV_VERSION:
+        return f"environment version {data.get('env_version', 'env1.0')}, not {ENV_VERSION}"
+    if data.get("rollout_size") != rollout:
+        return f"PPO rollout {data.get('rollout_size', 4096)}, not {rollout}"
+    return None
+
+
+def frozen_gamma(default: float, smoke: bool = False, rollout: int | None = None) -> float:
     """gamma from artifacts/frozen/gamma.json (written by the sweep), else the default.
 
     Smoke runs prefer gamma_smoke.json so that the smoke chain sweep -> training is exercised (A-114).
+    ``rollout`` is the run's n_envs * n_steps; a file swept with another rollout or environment version is
+    rejected.
     """
     for name in ("gamma_smoke", "gamma") if smoke else ("gamma",):
         data = read_frozen(name)
         if data and "gamma" in data:
-            if data.get("env_version") != ENV_VERSION:
-                # gamma is tied to the discount clock of the environment version that swept it (A-144).
+            reason = gamma_mismatch(data, rollout) if rollout is not None else None
+            if reason is not None:
                 raise ConfigError(
-                    f"artifacts/frozen/{name}.json was frozen for environment version "
-                    f"{data.get('env_version', 'env1.0')}, not {ENV_VERSION}; run 'propertyrl sweep-gamma' again"
+                    f"artifacts/frozen/{name}.json was frozen for {reason}; run 'propertyrl sweep-gamma' again"
                 )
             return float(data["gamma"])
     return float(default)
@@ -105,11 +132,14 @@ def resolve(
         ppo = ppo.model_copy(update=exp.training.ppo_overrides)
     if smoke:
         exp, ppo = apply_smoke(exp, ppo)
+    n_envs, n_steps = rollout_shape(ppo, os.cpu_count() or 1)
     if gamma is not None:
         g = float(gamma)
+    elif exp.env.gamma == "frozen":
+        g = frozen_gamma(ppo.gamma, smoke, n_envs * n_steps)
     else:
-        g = frozen_gamma(ppo.gamma, smoke) if exp.env.gamma == "frozen" else float(exp.env.gamma)
-    upd: dict[str, Any] = {"gamma": g, "n_envs": max(1, min(ppo.n_envs, os.cpu_count() or 1))}
+        g = float(exp.env.gamma)
+    upd: dict[str, Any] = {"gamma": g, "n_envs": n_envs, "n_steps": n_steps}
     if timesteps is not None:
         upd["total_timesteps"] = int(timesteps)
     ppo = ppo.model_copy(update=upd)
@@ -248,6 +278,21 @@ def find_checkpoint(experiment: str, seed: int | None, smoke: bool, kind: str = 
             if (base / name).exists():
                 return base / name
     return None
+
+
+def effective_rollout(experiment: str, smoke: bool = False) -> int:
+    """n_envs * n_steps of a run of ``experiment`` on this machine."""
+    _, ppo, _ = resolve(experiment, 1, smoke, gamma=1.0)
+    return ppo.n_envs * ppo.n_steps
+
+
+def matches_current_settings(rdir: Path) -> bool:
+    """True if a run used the gamma and the PPO rollout a new run would use now (frozen gamma, A-146)."""
+    meta = load_run_meta(rdir)
+    used = meta.get("config", {}).get("ppo", {})
+    _, now, _ = resolve(meta["experiment"], int(meta["training_seed"]), bool(meta["smoke"]))
+    rollout = int(used.get("n_envs", 0)) * int(used.get("n_steps", 0))
+    return used.get("gamma") == now.gamma and rollout == now.n_envs * now.n_steps
 
 
 # ---------------------------------------------------------------------------- run

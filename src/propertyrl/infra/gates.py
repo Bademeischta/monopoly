@@ -261,8 +261,24 @@ def _best_rate(rows: list[dict[str, Any]], opponent: str) -> float | None:
     return max(rates) if rates else None
 
 
+def current_select_rows(experiment: str = "mcr_official_2p", seed: int = 1) -> list[dict[str, Any]]:
+    """SELECT summaries of the agent ``experiment:<experiment>:<seed>`` refers to now.
+
+    Evaluations of earlier runs (an older gamma or PPO rollout, a failed attempt) no longer count (A-146).
+    """
+    from propertyrl.evaluation.ledger import agent_hash
+    from propertyrl.training.train import find_checkpoint
+
+    path = find_checkpoint(experiment, seed, False)
+    if path is None:
+        return []
+    rows = query("SELECT summary_json FROM eval_summaries WHERE experiment = ? AND split = 'select' AND smoke = 0 "
+                 "AND agent_hash = ?", (experiment, agent_hash(f"sb3:{path}")))  # fmt: skip
+    return [json.loads(r[0]) for r in rows]
+
+
 def gate_g4() -> list[dict[str, str]]:
-    rows = _eval_rows("mcr_official_2p", "select", False)
+    rows = current_select_rows()
     gamma = _json(frozen_dir() / "gamma.json")
     smoke = _smoke_evidence([frozen_dir() / "gamma_smoke.json"])
     rnd, roi = _best_rate(rows, "random_legal"), _best_rate(rows, "roi_markov_v1")

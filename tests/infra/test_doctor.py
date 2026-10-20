@@ -97,40 +97,58 @@ def test_malformed_database_is_reported_not_crashed(fresh_home: Path) -> None:
     assert res["next_step"].startswith("zuerst die Datenbank")
 
 
+def _frozen_state(home: Path, gamma: dict) -> None:
+    (home / "artifacts" / "test-reports").mkdir(parents=True)
+    (home / "artifacts" / "test-reports" / "junit.xml").write_text("<testsuites/>", encoding="utf-8")
+    write_json(home / "artifacts" / "roundrobin" / "latest.json", {"strongest": "strong_a_v1"})
+    frozen = home / "artifacts" / "frozen"
+    for name, data in (("strongest_baseline", {"policy": "strong_a_v1"}), ("horizon", {"horizon_2p": 140}),
+                       ("test_size", {"2p": 1200}), ("gamma", gamma)):  # fmt: skip
+        write_json(frozen / f"{name}.json", data)
+
+
 def test_next_step_respects_the_g4_stop_rule(fresh_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """With G4 failed, doctor must never send the user to the TEST evaluation of step 7."""
     import importlib
 
+    from propertyrl.evaluation.ledger import agent_hash
     from propertyrl.infra.storage import record_eval_summary
 
     train_mod = importlib.import_module("propertyrl.training.train")
 
-    (fresh_home / "artifacts" / "test-reports").mkdir(parents=True)
-    (fresh_home / "artifacts" / "test-reports" / "junit.xml").write_text("<testsuites/>", encoding="utf-8")
-    write_json(fresh_home / "artifacts" / "roundrobin" / "latest.json", {"strongest": "strong_a_v1"})
-    frozen = fresh_home / "artifacts" / "frozen"
-    gamma = {"gamma": 0.999, "env_version": ENV_VERSION}
-    for name, data in (("strongest_baseline", {"policy": "strong_a_v1"}), ("horizon", {"horizon_2p": 140}),
-                       ("test_size", {"2p": 1200}), ("gamma", gamma)):  # fmt: skip
-        write_json(frozen / f"{name}.json", data)
-    monkeypatch.setattr(train_mod, "find_checkpoint", lambda *args, **kwargs: fresh_home / "best_select.zip")
-    summary = {"opponents": {"random_legal": {"win_rate": 0.95}, "roi_markov_v1": {"win_rate": 0.42}}}
-    record_eval_summary("select_x", "h", "mcr_official_2p", "select", "OFFICIAL_US_CLASSIC_2008", 200, 800,
-                        ["random_legal", "roi_markov_v1"], summary, fresh_home / "e", False)  # fmt: skip
-    res = doctor()
-    assert res["next_step"].startswith("Schritt 6: G4 nicht bestanden")
-    summary["opponents"]["roi_markov_v1"]["win_rate"] = 0.55
-    record_eval_summary("select_y", "h2", "mcr_official_2p", "select", "OFFICIAL_US_CLASSIC_2008", 200, 800,
-                        ["random_legal", "roi_markov_v1"], summary, fresh_home / "e2", False)  # fmt: skip
+    _frozen_state(fresh_home, {"gamma": 0.999, "env_version": ENV_VERSION, "rollout_size": 512})
+    monkeypatch.setattr(train_mod, "effective_rollout", lambda *args, **kwargs: 512)
+    current = {"ckpt": fresh_home / "old" / "best_select.zip", "settings": True}
+    monkeypatch.setattr(train_mod, "find_checkpoint", lambda *args, **kwargs: current["ckpt"])
+    monkeypatch.setattr(train_mod, "matches_current_settings", lambda rdir: current["settings"])
+
+    def evaluated(name: str, roi: float) -> None:
+        ckpt = fresh_home / name / "best_select.zip"
+        ckpt.parent.mkdir()
+        ckpt.write_bytes(name.encode())
+        current["ckpt"] = ckpt
+        summary = {"opponents": {"random_legal": {"win_rate": 0.95}, "roi_markov_v1": {"win_rate": roi}}}
+        record_eval_summary(f"select_{name}", agent_hash(f"sb3:{ckpt}"), "mcr_official_2p", "select",
+                            "OFFICIAL_US_CLASSIC_2008", 200, 800, ["random_legal", "roi_markov_v1"], summary,
+                            fresh_home / "e" / name, False)  # fmt: skip
+
+    evaluated("old", 0.42)
+    assert doctor()["next_step"].startswith("Schritt 6: G4 nicht bestanden")
+    current["settings"] = False  # run trained with another gamma or rollout: train again (A-146)
+    assert doctor()["next_step"] == "Schritt 6: propertyrl train --experiment mcr_official_2p --seed 1"
+    current["settings"] = True
+    current["ckpt"] = fresh_home / "new.zip"
+    current["ckpt"].write_bytes(b"new")
+    assert doctor()["next_step"].startswith("Schritt 6: propertyrl evaluate")  # old evaluations do not count
+    evaluated("new", 0.55)
     assert doctor()["next_step"] == "Schritt 7: propertyrl pipeline --experiment mcr_official_2p"
 
 
 def test_gamma_from_an_older_environment_version_means_step_6_again(fresh_home: Path) -> None:
-    (fresh_home / "artifacts" / "test-reports").mkdir(parents=True)
-    (fresh_home / "artifacts" / "test-reports" / "junit.xml").write_text("<testsuites/>", encoding="utf-8")
-    write_json(fresh_home / "artifacts" / "roundrobin" / "latest.json", {"strongest": "strong_a_v1"})
-    frozen = fresh_home / "artifacts" / "frozen"
-    for name, data in (("strongest_baseline", {"policy": "strong_a_v1"}), ("horizon", {"horizon_2p": 140}),
-                       ("test_size", {"2p": 1200}), ("gamma", {"gamma": 0.999})):  # fmt: skip
-        write_json(frozen / f"{name}.json", data)
+    _frozen_state(fresh_home, {"gamma": 0.999})
     assert doctor()["next_step"].startswith("Schritt 6 neu")
+
+
+def test_gamma_from_another_rollout_means_step_6_again(fresh_home: Path) -> None:
+    _frozen_state(fresh_home, {"gamma": 0.99, "env_version": ENV_VERSION})
+    assert "PPO-Rollout" in doctor()["next_step"]
