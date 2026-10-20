@@ -462,6 +462,7 @@ Lokal liefen 2 Envs statt 16, also ein Rollout von 512 statt 4.096 Übergängen 
 2 × 256, 4 × 128 oder 16 × 32. γ = 0,999 lernte dabei schneller als γ = 0,99. Der Lauf mit 2 × 256 und γ = 0,999
 reproduziert Nachtrag 3 bitgleich (0,571 gegen `strong_a_v1` nach 500.000 Schritten), die Monkeypatches der
 damaligen Experimente verfälschten also nichts.
+Auf SELECT (je 400 Spiele) bestehen die besten Checkpoints mit Rollout 512 und γ = 0,999 beide G4-Kriterien: 16 × 32 nach 1 Mio. Schritten 100 % gegen `random_legal` und 62,3 % gegen `roi_markov_v1`, 4 × 128 nach 500.000 Schritten 100 % und 56,9 %.
 
 Korrektur (A-146): fester `rollout_size: 512`. Daraus ergeben sich `n_envs` und `n_steps` je Rechner, der
 Update-Takt hängt nicht mehr von der Kernzahl ab. `gamma.json` trägt den Rollout seiner Piloten. Das
